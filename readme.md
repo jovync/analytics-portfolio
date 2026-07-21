@@ -1,44 +1,30 @@
-**# Analytics Portfolio**
+# Analytics Portfolio
 
+Welcome! I'm **Jovy Carreon**, a Senior Data Analyst building a production-style analytics platform inspired by real consulting engagements.
 
+## Mission
 
-**Hi! I'm Jovy Carreon.**
+Design scalable analytics systems that help organizations make faster, more confident decisions.
 
+## What You'll Find Here
 
+- Python ETL pipelines
+- SQL analytics
+- DuckDB and BigQuery data models
+- Looker Studio dashboards
+- End-to-end analytics case studies
+- Architecture documentation
 
-**I'm a Senior Data Analyst with experience in SQL, Python, Power BI, BigQuery, and analytics automation.**
+## Current Focus
 
+🚧 Engagement 1: Building the Analytics Foundation for a Growing Lifestyle Company
 
+## Roadmap
 
-**This repository contains my end-to-end data analytics projects, including:**
+- Analytics Foundation
+- Manufacturing Analytics
+- Supply Chain Analytics
+- Customer 360 Analytics
+- Marketing Analytics
 
-
-
-**- Data cleaning**
-
-**- ETL pipelines**
-
-**- SQL analysis**
-
-**- Dashboards**
-
-**- Business insights**
-
-**- Machine learning projects**
-
-
-
-**## Tech Stack**
-
-
-
-**- Python**
-
-**- SQL**
-
-**- Power BI**
-
-**- Git**
-
-**- GitHub**
-
+Stay tuned as this platform evolves through realistic consulting-style engagements.
