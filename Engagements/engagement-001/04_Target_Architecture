@@ -1,0 +1,32 @@
+# Target Architecture
+
+Source Systems
+
+- ERP
+- POS
+- Manufacturing
+- CRM
+
+↓
+
+Python ETL
+
+↓
+
+DuckDB
+
+↓
+
+Analytics Data Model
+
+↓
+
+Looker Studio
+
+↓
+
+Executive Dashboard
+
+↓
+
+Business Decisions

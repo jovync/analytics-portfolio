@@ -1,0 +1,32 @@
+# Project Charter
+
+## Business Objective
+
+Establish a centralized analytics platform that serves as the organization's single source of truth.
+
+## Scope
+
+This engagement will include:
+
+- Analytics architecture
+- Data ingestion
+- ETL pipeline
+- Data warehouse
+- KPI definitions
+- Executive dashboard
+
+## Out of Scope
+
+- Machine learning
+- Forecasting
+- Customer segmentation
+- Manufacturing optimization
+
+These will be addressed in future engagements.
+
+## Success Metrics
+
+- Reduce manual reporting effort.
+- Standardize KPI definitions.
+- Deliver automated executive dashboards.
+- Improve confidence in business reporting.
