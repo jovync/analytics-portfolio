@@ -114,10 +114,10 @@ AnalyticsPortfolio/
 - [x] Business Discovery
 - [x] Business Capability Model
 - [x] Core Business Processes
-- [ ] Enterprise KPI Framework
-- [ ] Enterprise Data Model
-- [ ] Star Schema Design
-- [ ] Data Dictionary
+- [x] Enterprise KPI Framework
+- [x] Enterprise Data Model
+- [x] Star Schema Design
+- [x] Data Dictionary
 - [ ] ETL Architecture
 - [ ] dbt Models
 - [ ] Sample Data Generation
