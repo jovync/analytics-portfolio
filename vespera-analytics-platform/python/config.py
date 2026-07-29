@@ -518,3 +518,86 @@ LOYALTY_ORDER_FREQUENCY_WEIGHTS = {
     "Platinum": 3.5,
 
 }
+
+# =============================================================================
+# MARKETING CHANNELS
+# =============================================================================
+# Only paid channels get ad spend. Organic Search and Referral are
+# intentionally excluded — they're unpaid/indirect acquisition paths,
+# so customers.py's ACQUISITION_CHANNELS assigns customers to them,
+# but marketing_spend.py generates no spend rows for them. This is
+# what makes CAC math meaningful: organic/referral customers count
+# in the "new customers" denominator without inflating the spend
+# numerator.
+# =============================================================================
+
+MARKETING_CHANNELS = {
+
+    "Facebook Ads": {
+        "platform": "Meta",
+        "daily_budget_range": (150, 500),
+    },
+
+    "Instagram": {
+        "platform": "Meta",
+        "daily_budget_range": (120, 450),
+    },
+
+    "TikTok": {
+        "platform": "TikTok",
+        "daily_budget_range": (100, 400),
+    },
+
+    "Email Campaign": {
+        "platform": "Klaviyo",
+        "daily_budget_range": (20, 80),
+    },
+
+}
+
+# =============================================================================
+# TAX RATES
+# =============================================================================
+# Applied based on the fulfilling warehouse's country (point-of-sale
+# jurisdiction), not the customer's country. Simplified to a single
+# rate per country — real GST/VAT systems have category-specific
+# exemptions and thresholds not modeled here.
+# =============================================================================
+
+TAX_RATES_BY_COUNTRY = {
+
+    "Singapore": 0.09,    # GST
+    "Malaysia": 0.06,     # SST
+    "Thailand": 0.07,     # VAT
+    "Philippines": 0.12,  # VAT
+    "Vietnam": 0.10,      # VAT
+
+}
+
+# =============================================================================
+# MARKETPLACE COMMISSION RATES
+# =============================================================================
+# Shopee/Lazada charge a seller commission on each sale; Shopify
+# (own storefront) and Retail (in-store) do not.
+# =============================================================================
+
+MARKETPLACE_COMMISSION_RATES = {
+
+    "Shopify": 0.00,
+    "Shopee": 0.06,
+    "Lazada": 0.05,
+    "Retail": 0.00,
+
+}
+
+# =============================================================================
+# RESTOCKING FEES
+# =============================================================================
+# Only charged when the return is the customer's choice (remorse),
+# not when Vespera is at fault (damaged, wrong item shipped, sizing
+# issue, not as expected).
+# =============================================================================
+
+RESTOCKING_FEE_APPLICABLE_REASONS = {"Customer Remorse"}
+
+RESTOCKING_FEE_RATE = 0.10

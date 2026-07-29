@@ -11,11 +11,14 @@ Products offered in each order's basket are restricted to:
   1. Products actually launched and not yet discontinued as of
      the order's date.
   2. Products the fulfilling warehouse is actually assigned to
-     carry (per assignment_df) — previously this file had no
-     concept of warehouse assignment at all, so it could sell
-     products a warehouse never stocked and never received
-     purchase orders for, which was the root cause of persistent
-     negative inventory balances.
+     carry (per assignment_df).
+
+tax_amount is based on the fulfilling warehouse's country (point-
+of-sale tax jurisdiction), and commission_amount is based on the
+order's sales channel (marketplace channels like Shopee/Lazada
+charge a seller commission; Shopify/Retail do not) — per the
+Enterprise KPI Framework's Net Revenue formula, which requires
+taxes and commissions at the line-item grain.
 """
 
 from __future__ import annotations
@@ -26,7 +29,11 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from config import RANDOM_SEED
+from config import (
+    RANDOM_SEED,
+    TAX_RATES_BY_COUNTRY,
+    MARKETPLACE_COMMISSION_RATES,
+)
 
 from utils import weighted_choice, generate_id
 
@@ -79,10 +86,6 @@ DISCOUNT_WEIGHTS = {
 
 }
 
-# Sentinel used to stand in for "never discontinued" so the
-# eligibility comparison below can treat every product's
-# discontinued_date as a real, comparable date.
-
 FAR_FUTURE_DATE = date(9999, 12, 31)
 
 
@@ -100,9 +103,7 @@ def _weighted_sample_without_replacement(
     pandas.DataFrame.sample(weights=...). Pareto-distributed
     popularity_weight can produce a single item whose weight
     dominates the rest, which pandas' sampling algorithm rejects
-    outright (ValueError: "Weighted sampling cannot be achieved
-    with replace=False"). numpy.random.choice has no such
-    restriction.
+    outright. numpy.random.choice has no such restriction.
     """
 
     weights = df[weight_col].to_numpy(dtype=float)
@@ -126,6 +127,7 @@ def generate_order_items(
     orders_df: pd.DataFrame,
     products_df: pd.DataFrame,
     assignment_df: pd.DataFrame,
+    warehouses_df: pd.DataFrame,
     seed: int = RANDOM_SEED,
 ) -> pd.DataFrame:
     """
@@ -143,6 +145,10 @@ def generate_order_items(
         Output of assignment.generate_product_warehouse_assignment().
         Restricts each order's basket to only products the
         fulfilling warehouse actually carries.
+
+    warehouses_df
+        Warehouse master. Used to look up the fulfilling
+        warehouse's country for tax_amount calculation.
 
     seed
         Random seed for reproducible results.
@@ -167,12 +173,15 @@ def generate_order_items(
         .values
     )
 
-    # warehouse_id -> set of product_ids it's assigned to carry
     products_by_warehouse = (
         assignment_df.groupby("warehouse_id")["product_id"]
         .apply(set)
         .to_dict()
     )
+
+    warehouse_country_lookup = warehouses_df.set_index(
+        "warehouse_id"
+    )["country"].to_dict()
 
     for _, order in orders_df.iterrows():
 
@@ -199,8 +208,10 @@ def generate_order_items(
         # actually carries.
         # ----------------------------------------------------------
 
+        warehouse_id = order["fulfillment_warehouse_id"]
+
         carried_product_ids = products_by_warehouse.get(
-            order["fulfillment_warehouse_id"],
+            warehouse_id,
             set(),
         )
 
@@ -209,8 +220,6 @@ def generate_order_items(
         ]
 
         if eligible_products.empty:
-            # No sellable, carried SKU for this warehouse/date
-            # combination — skip rather than force an invalid sale.
             continue
 
         basket_size = weighted_choice(BASKET_SIZE)
@@ -221,6 +230,22 @@ def generate_order_items(
             eligible_products,
             n=basket_size,
             weight_col="popularity_weight",
+        )
+
+        # ----------------------------------------------------------
+        # Tax rate (by fulfilling warehouse's country) and
+        # commission rate (by sales channel) are the same for
+        # every line item in this order, so compute once per order
+        # rather than once per line.
+        # ----------------------------------------------------------
+
+        warehouse_country = warehouse_country_lookup.get(warehouse_id)
+
+        tax_rate = TAX_RATES_BY_COUNTRY.get(warehouse_country, 0.0)
+
+        commission_rate = MARKETPLACE_COMMISSION_RATES.get(
+            order["sales_channel"],
+            0.0,
         )
 
         for _, product in basket.iterrows():
@@ -237,6 +262,10 @@ def generate_order_items(
 
             net_sales = round(gross_sales - discount_amount, 2)
 
+            tax_amount = round(net_sales * tax_rate, 2)
+
+            commission_amount = round(net_sales * commission_rate, 2)
+
             records.append(
 
                 {
@@ -252,7 +281,7 @@ def generate_order_items(
 
                     # Inherited from the order header
                     "warehouse_id":
-                        order["fulfillment_warehouse_id"],
+                        warehouse_id,
 
                     "quantity":
                         quantity,
@@ -271,6 +300,12 @@ def generate_order_items(
 
                     "net_sales":
                         net_sales,
+
+                    "tax_amount":
+                        tax_amount,
+
+                    "commission_amount":
+                        commission_amount,
 
                 }
 
@@ -329,6 +364,7 @@ if __name__ == "__main__":
         orders_df=orders_df,
         products_df=products_df,
         assignment_df=assignment_df,
+        warehouses_df=warehouses_df,
     )
 
     print(order_items_df.head())

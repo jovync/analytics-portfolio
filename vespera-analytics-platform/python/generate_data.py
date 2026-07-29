@@ -33,6 +33,7 @@ from generators.order_items import generate_order_items
 from generators.shipments import generate_shipments
 from generators.returns import generate_returns
 from generators.inventory_movements import generate_inventory_movements
+from generators.marketing_spend import generate_marketing_spend
 
 
 # --------------------------------------------------
@@ -122,6 +123,9 @@ def main():
     print("Generating Warehouses...")
     warehouses_df = generate_warehouses()
 
+    print("Generating Marketing Spend...")
+    marketing_spend_df = generate_marketing_spend()
+
     # --------------------------------------------------
     # Demand Tiers + Warehouse/Product Assignment
     # --------------------------------------------------
@@ -174,6 +178,7 @@ def main():
         orders_df=orders_df,
         products_df=products_df,
         assignment_df=assignment_df,
+        warehouses_df=warehouses_df,
     )
 
     # --------------------------------------------------
@@ -282,6 +287,11 @@ def main():
         index=False,
     )
 
+    marketing_spend_df.to_csv(
+    DATA_FOLDER / "marketing_spend.csv",
+    index=False,
+    )
+
     # --------------------------------------------------
     # Summary
     # --------------------------------------------------
@@ -302,6 +312,7 @@ def main():
     print(f"Shipments:                    {len(shipments_df):>10,}")
     print(f"Returns:                      {len(returns_df):>10,}")
     print(f"Inventory Movements:          {len(inventory_movements_df):>10,}")
+    print(f"Marketing Spend:              {len(marketing_spend_df):>10,}")
 
     print("\nCSV files saved to:")
     print(DATA_FOLDER.resolve())
