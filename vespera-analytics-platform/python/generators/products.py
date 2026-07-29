@@ -6,108 +6,217 @@ Synthetic Enterprise Simulation Engine.
 
 This dataset represents the ERP Item Master (NetSuite) and is
 referenced by Sales, Procurement, Inventory, Manufacturing,
-and Finance.
+Logistics, and Finance.
 """
+
+from __future__ import annotations
 
 import random
 
 import numpy as np
 import pandas as pd
 
-from ..config import (
+from config import (
     BRANDS,
-    PRODUCT_NAME_PATTERNS,
-    START_DATE,
+    NUM_PRODUCTS,
+    PRODUCT_CATALOG,
+    RANDOM_SEED,
+    SIMULATION_START_DATE,
+    SIMULATION_END_DATE,
 )
 
+from utils import weighted_choice, generate_id
+
+# New-launch window: products launched within this many days of
+# SIMULATION_END_DATE are always "New Launch" rather than randomly
+# assigned, so lifecycle_status stays consistent with launch_date.
+
+NEW_LAUNCH_WINDOW_DAYS = 60
+
+LIFECYCLE_WEIGHTS = {
+    "Active": 0.85,
+    "Discontinued": 0.15,
+}
+
+
+# =============================================================================
+# GENERATOR
+# =============================================================================
 
 def generate_products(
-    count: int,
-    suppliers_df: pd.DataFrame,
-    seed: int,
+    product_count: int = NUM_PRODUCTS,
+    suppliers_df: pd.DataFrame | None = None,
+    seed: int = RANDOM_SEED,
 ) -> pd.DataFrame:
     """
     Generate the enterprise product master.
 
     Parameters
     ----------
-    count : int
-        Number of products.
+    product_count
+        Number of products to generate.
 
-    suppliers_df : pd.DataFrame
-        Supplier master.
+    suppliers_df
+        Supplier master data. Must include a `category_specialty`
+        column so products can be assigned a supplier that actually
+        makes that category.
 
-    seed : int
-        Random seed.
+    seed
+        Random seed for reproducible results.
 
     Returns
     -------
-    pd.DataFrame
+    pandas.DataFrame
     """
+
+    if suppliers_df is None:
+        raise ValueError(
+            "suppliers_df is required to generate products."
+        )
 
     random.seed(seed)
     np.random.seed(seed)
 
-    supplier_ids = suppliers_df["supplier_id"].tolist()
+    categories = list(PRODUCT_CATALOG.keys())
 
-    categories = list(PRODUCT_NAME_PATTERNS.keys())
+    # Pre-split supplier pool by category specialty so each product
+    # draws only from suppliers who actually make that category.
+
+    suppliers_by_category = {
+        category: suppliers_df.loc[
+            suppliers_df["category_specialty"] == category,
+            "supplier_id",
+        ].tolist()
+        for category in categories
+    }
+
+    all_supplier_ids = suppliers_df["supplier_id"].tolist()
 
     products = []
 
-    for i in range(1, count + 1):
+    existing_names = set()
+
+    for product_number in range(1, product_count + 1):
+
+        # ----------------------------------------------------------
+        # Category
+        # ----------------------------------------------------------
 
         category = random.choice(categories)
 
-        cfg = PRODUCT_NAME_PATTERNS[category]
+        cfg = PRODUCT_CATALOG[category]
 
-        adjective = random.choice(cfg["adjectives"])
-        noun = random.choice(cfg["nouns"])
+        # ----------------------------------------------------------
+        # Product Naming (unique, with variant to avoid collisions)
+        # ----------------------------------------------------------
 
-        brand = random.choice(BRANDS)
+        while True:
 
-        product_name = f"{brand} {adjective} {noun}"
+            brand = random.choice(BRANDS)
 
-        supplier_id = random.choice(supplier_ids)
+            adjective = random.choice(cfg["adjectives"])
+
+            product = random.choice(cfg["products"])
+
+            variant = random.choice(cfg["variants"])
+
+            product_name = (
+                f"{brand} {adjective} {product} - {variant}"
+            )
+
+            if product_name not in existing_names:
+                existing_names.add(product_name)
+                break
+
+        # ----------------------------------------------------------
+        # Supplier (category-aware; falls back to any supplier if
+        # a category somehow has no specialists assigned)
+        # ----------------------------------------------------------
+
+        candidate_suppliers = (
+            suppliers_by_category[category] or all_supplier_ids
+        )
+
+        supplier_id = random.choice(candidate_suppliers)
+
+        # ----------------------------------------------------------
+        # Pricing
+        # ----------------------------------------------------------
 
         base_cost = round(
             random.uniform(
-                cfg["base_cost_range"][0],
-                cfg["base_cost_range"][1],
+                cfg["base_cost"][0],
+                cfg["base_cost"][1],
             ),
             2,
         )
 
-        msrp = round(
-            base_cost * cfg["markup"],
-            2,
-        )
+        markup = random.uniform(*cfg["markup"])
 
-        launch_date = pd.Timestamp(
-            random.choice(
-                pd.date_range(
-                    START_DATE,
-                    periods=900,
-                    freq="D",
-                )
+        msrp = round(base_cost * markup, 2)
+
+        # ----------------------------------------------------------
+        # Product Lifecycle
+        # ----------------------------------------------------------
+
+        # 85% of products already existed before the simulation starts
+        # (a real retailer has an established catalog on day one).
+        # The remaining 15% are genuine new launches introduced during
+        # the simulation window, which is what New Launch / seasonal
+        # ramp-up should actually represent.
+
+        if random.random() < 0.85:
+
+            launch_date = (
+                SIMULATION_START_DATE
+                - pd.Timedelta(days=random.randint(30, 900))
             )
+
+        else:
+
+            launch_date = (
+                SIMULATION_START_DATE
+                + pd.Timedelta(days=random.randint(1, 730))
+            )
+
+        days_to_sim_end = (SIMULATION_END_DATE - launch_date).days
+
+        discontinued_date = None
+
+        if days_to_sim_end <= NEW_LAUNCH_WINDOW_DAYS:
+
+            # Launched too recently to have accumulated a track
+            # record yet — cannot be "Discontinued" this soon.
+            lifecycle_status = "New Launch"
+
+        else:
+
+            lifecycle_status = weighted_choice(LIFECYCLE_WEIGHTS)
+
+            if lifecycle_status == "Discontinued":
+
+                discontinued_date = (
+                    launch_date
+                    + pd.Timedelta(
+                        days=random.randint(
+                            30,
+                            max(31, days_to_sim_end - 1),
+                        )
+                    )
+                ).date()
+
+        # ----------------------------------------------------------
+        # Demand Characteristics
+        # ----------------------------------------------------------
+
+        popularity_weight = round(
+            float(np.random.pareto(1.5) + 0.1),
+            4,
         )
 
-        lifecycle_status = random.choices(
-            [
-                "Active",
-                "New Launch",
-                "Discontinued",
-            ],
-            weights=[
-                0.80,
-                0.10,
-                0.10,
-            ],
-        )[0]
-
-        popularity_weight = float(
-            np.random.pareto(1.5) + 0.1
-        )
+        # ----------------------------------------------------------
+        # Inventory Planning
+        # ----------------------------------------------------------
 
         reorder_point = random.choice(
             [
@@ -131,68 +240,93 @@ def generate_products(
             35,
         )
 
+        # ----------------------------------------------------------
+        # Record
+        # ----------------------------------------------------------
+
         products.append(
+
             {
-                "product_id": i,
 
-                "sku": f"SKU-{i:05d}",
+                "product_id":
+                    generate_id("PRD", product_number, width=5),
 
-                "product_name": product_name,
+                "sku":
+                    generate_id("SKU", product_number, width=5),
 
-                "category": category,
+                "product_name":
+                    product_name,
 
-                "brand": brand,
+                "category":
+                    category,
 
-                "supplier_id": supplier_id,
+                "brand":
+                    brand,
 
-                "base_cost_sgd": base_cost,
+                "supplier_id":
+                    supplier_id,
 
-                "msrp_sgd": msrp,
+                "base_cost_sgd":
+                    base_cost,
 
-                "launch_date": launch_date.date(),
+                "msrp_sgd":
+                    msrp,
 
-                "lifecycle_status": lifecycle_status,
+                "launch_date":
+                    launch_date.date(),
 
-                "popularity_weight": round(
+                "lifecycle_status":
+                    lifecycle_status,
+
+                "discontinued_date":
+                    discontinued_date,
+
+                "popularity_weight":
                     popularity_weight,
-                    4,
-                ),
 
-                "return_rate": cfg["return_rate"],
+                "return_rate":
+                    cfg["return_rate"],
 
-                "reorder_point": reorder_point,
+                "reorder_point":
+                    reorder_point,
 
-                "reorder_quantity": reorder_quantity,
+                "reorder_quantity":
+                    reorder_quantity,
 
-                "lead_time_days": lead_time_days,
+                "lead_time_days":
+                    lead_time_days,
+
             }
+
         )
 
-    df = pd.DataFrame(products)
+    products_df = (
+        pd.DataFrame(products)
+        .sort_values("product_id")
+        .reset_index(drop=True)
+    )
 
-    return df
+    return products_df
 
+
+# =============================================================================
+# Example
+# =============================================================================
 
 if __name__ == "__main__":
 
-    from generators.suppliers import generate_suppliers
-    from config import (
-        TARGET_ITEMS,
-        TARGET_SUPPLIERS,
-        SEED,
+    from suppliers import generate_suppliers
+
+    suppliers_df = generate_suppliers()
+
+    products_df = generate_products(
+        suppliers_df=suppliers_df
     )
 
-    suppliers = generate_suppliers(
-        TARGET_SUPPLIERS,
-        SEED,
-    )
-
-    df = generate_products(
-        TARGET_ITEMS,
-        suppliers,
-        SEED,
-    )
-
-    print(df.head())
+    print(products_df.head())
     print()
-    print(df["category"].value_counts())
+    print(products_df["category"].value_counts())
+    print()
+    print(products_df["lifecycle_status"].value_counts())
+    print()
+    print(products_df.info())

@@ -1,45 +1,51 @@
 """
 Warehouse Master Generator
 
-Generates the warehouse dimension from the enterprise configuration.
+Creates the enterprise fulfillment location master used by
+the Vespera Analytics Platform.
 
-Unlike suppliers or customers, warehouses are fixed business assets,
-so they are configuration-driven rather than randomly generated.
+The warehouse master is referenced by Inventory,
+Order Fulfillment, Shipments, Returns,
+and Inventory Movements.
 """
 
-from datetime import datetime
+from __future__ import annotations
+
 import pandas as pd
 
 from config import WAREHOUSES
 
 
+# =============================================================================
+# GENERATOR
+# =============================================================================
+
 def generate_warehouses() -> pd.DataFrame:
     """
-    Generate the warehouse master table.
+    Generate enterprise warehouse master.
 
     Returns
     -------
-    pd.DataFrame
-        Warehouse dimension.
+    pandas.DataFrame
     """
 
-    warehouse_records = []
+    warehouses_df = (
+        pd.DataFrame(WAREHOUSES)
+        .sort_values("warehouse_code")
+        .reset_index(drop=True)
+    )
 
-    for warehouse in WAREHOUSES:
-        warehouse_records.append(
-            {
-                "warehouse_id": warehouse["warehouse_id"],
-                "warehouse_name": warehouse["name"],
-                "country": warehouse["country"],
+    return warehouses_df
 
-                # Operational metadata
-                "region": "Southeast Asia",
-                "warehouse_type": "Distribution Center",
 
-                # Lifecycle
-                "opened_date": datetime(2022, 1, 1).date(),
-                "active_flag": True,
-            }
-        )
+# =============================================================================
+# Example
+# =============================================================================
 
-    return pd.DataFrame(warehouse_records)
+if __name__ == "__main__":
+
+    warehouses_df = generate_warehouses()
+
+    print(warehouses_df)
+    print()
+    print(warehouses_df.info())

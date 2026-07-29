@@ -15,19 +15,14 @@ from datetime import timedelta
 
 import pandas as pd
 
-from faker import Faker
-
 from config import (
     RANDOM_SEED,
     NUM_SUPPLIERS,
     SIMULATION_START_DATE,
+    PRODUCT_CATALOG,
 )
 
-fake = Faker()
-
-random.seed(RANDOM_SEED)
-Faker.seed(RANDOM_SEED)
-
+from utils import fake, weighted_choice, generate_id
 
 # =============================================================================
 # REFERENCE DATA
@@ -66,13 +61,26 @@ SUPPLIER_SUFFIXES = [
     "Holdings",
 ]
 
-COUNTRIES = {
+# Sourcing countries, weighted toward where SEA retail manufacturing
+# actually concentrates (China dominant, Singapore mostly a trading/
+# finance hub rather than a manufacturing origin).
+
+COUNTRY_CURRENCY = {
     "China": "CNY",
     "Vietnam": "USD",
     "Thailand": "THB",
     "Malaysia": "MYR",
     "Singapore": "SGD",
     "Indonesia": "IDR",
+}
+
+COUNTRY_WEIGHTS = {
+    "China": 0.45,
+    "Vietnam": 0.20,
+    "Thailand": 0.10,
+    "Malaysia": 0.10,
+    "Indonesia": 0.10,
+    "Singapore": 0.05,
 }
 
 PAYMENT_TERMS = [
@@ -88,6 +96,17 @@ SUPPLIER_TIERS = {
     "Standard": 0.50,
 }
 
+# Category specialty: which part of the product catalog this
+# supplier makes. Lets products.py assign suppliers that actually
+# match the product's category instead of a fully random pick.
+# Roughly even across the 4 categories at this supplier count
+# (~30 / 4 suppliers per category).
+
+CATEGORY_SPECIALTIES = {
+    category: round(1 / len(PRODUCT_CATALOG), 4)
+    for category in PRODUCT_CATALOG.keys()
+}
+
 
 # =============================================================================
 # GENERATOR
@@ -95,6 +114,7 @@ SUPPLIER_TIERS = {
 
 def generate_suppliers(
     supplier_count: int = NUM_SUPPLIERS,
+    seed: int = RANDOM_SEED,
 ) -> pd.DataFrame:
     """
     Generate enterprise supplier master.
@@ -104,10 +124,16 @@ def generate_suppliers(
     supplier_count
         Number of suppliers to generate.
 
+    seed
+        Random seed for reproducible results.
+
     Returns
     -------
     pandas.DataFrame
     """
+
+    random.seed(seed)
+    fake.seed_instance(seed)
 
     suppliers = []
 
@@ -134,19 +160,21 @@ def generate_suppliers(
         # Country / Currency
         # ----------------------------------------------------------
 
-        country = random.choice(list(COUNTRIES.keys()))
+        country = weighted_choice(COUNTRY_WEIGHTS)
 
-        currency = COUNTRIES[country]
+        currency = COUNTRY_CURRENCY[country]
+
+        # ----------------------------------------------------------
+        # Category Specialty
+        # ----------------------------------------------------------
+
+        category_specialty = weighted_choice(CATEGORY_SPECIALTIES)
 
         # ----------------------------------------------------------
         # Supplier Tier
         # ----------------------------------------------------------
 
-        supplier_tier = random.choices(
-            population=list(SUPPLIER_TIERS.keys()),
-            weights=list(SUPPLIER_TIERS.values()),
-            k=1,
-        )[0]
+        supplier_tier = weighted_choice(SUPPLIER_TIERS)
 
         preferred_supplier = supplier_tier in (
             "Strategic",
@@ -209,13 +237,16 @@ def generate_suppliers(
             {
 
                 "supplier_id":
-                    f"SUP-{supplier_number:04d}",
+                    generate_id("SUP", supplier_number, width=4),
 
                 "supplier_name":
                     supplier_name,
 
                 "supplier_tier":
                     supplier_tier,
+
+                "category_specialty":
+                    category_specialty,
 
                 "country":
                     country,
@@ -244,8 +275,10 @@ def generate_suppliers(
 
     suppliers_df = pd.DataFrame(suppliers)
 
-    suppliers_df = suppliers_df.sort_values(
-        by="supplier_id"
-    ).reset_index(drop=True)
+    suppliers_df = (
+        suppliers_df
+        .sort_values("supplier_id")
+        .reset_index(drop=True)
+    )
 
     return suppliers_df

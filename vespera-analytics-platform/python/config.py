@@ -2,8 +2,11 @@
 Vespera Enterprise Simulation Engine (VESE)
 Global Configuration
 
-This module centralizes all enterprise configuration values used by
-the synthetic data simulation engine.
+Centralized configuration for the entire synthetic
+enterprise simulation.
+
+Every generator should import its defaults from this
+module rather than hardcoding values.
 """
 
 from pathlib import Path
@@ -14,10 +17,15 @@ from datetime import datetime
 # =============================================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 DATA_DIR = PROJECT_ROOT / "data"
+
 RAW_DATA_DIR = DATA_DIR / "raw"
 
-RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+RAW_DATA_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
 # =============================================================================
 # RANDOMNESS
@@ -30,32 +38,45 @@ RANDOM_SEED = 42
 # =============================================================================
 
 SIMULATION_START_DATE = datetime(2024, 1, 1)
+
 SIMULATION_END_DATE = datetime(2025, 12, 31)
 
 # =============================================================================
-# DATA VOLUMES
+# ENTERPRISE DATA VOLUMES
 # =============================================================================
 
 NUM_SUPPLIERS = 30
-NUM_CUSTOMERS = 10000
-NUM_PRODUCTS = 1200
 
-TARGET_ORDER_COUNT = 50000
-TARGET_RETURN_COUNT = 4000
+NUM_CUSTOMERS = 10_000
+
+NUM_PRODUCTS = 1_200
+
+TARGET_ORDER_COUNT = 50_000
+
+TARGET_RETURN_COUNT = 4_000
 
 # =============================================================================
 # BRANDS
 # =============================================================================
 
 BRANDS = [
+
     "Vespera Essentials",
+
     "Aura Home",
+
     "Lumina Living",
+
     "Solstice Active",
+
     "Zenith Gear",
+
     "Atelier V",
+
     "Halo Beauty",
-    "Nord House"
+
+    "Nord House",
+
 ]
 
 # =============================================================================
@@ -67,7 +88,9 @@ PRODUCT_CATALOG = {
     "Personal Care": {
 
         "return_rate": 0.03,
-        "markup": 2.8,
+
+        "markup": (2.4, 3.2),
+
         "base_cost": (6, 30),
 
         "adjectives": [
@@ -76,23 +99,33 @@ PRODUCT_CATALOG = {
             "Botanical",
             "Radiant",
             "Pure",
-            "Essential"
+            "Essential",
         ],
 
         "products": [
-            "Serum 50ml",
+            "Serum",
             "Facial Cleanser",
             "Body Lotion",
             "Hand Wash",
-            "Sunscreen SPF50",
-            "Night Cream"
-        ]
+            "Sunscreen",
+            "Night Cream",
+        ],
+
+        "variants": [
+            "30ml",
+            "50ml",
+            "100ml",
+            "150ml",
+            "200ml",
+        ],
     },
 
     "Apparel": {
 
         "return_rate": 0.12,
-        "markup": 2.5,
+
+        "markup": (2.1, 2.9),
+
         "base_cost": (12, 45),
 
         "adjectives": [
@@ -101,7 +134,7 @@ PRODUCT_CATALOG = {
             "Essential",
             "Premium",
             "Tailored",
-            "Urban"
+            "Urban",
         ],
 
         "products": [
@@ -110,14 +143,25 @@ PRODUCT_CATALOG = {
             "Denim Jacket",
             "Knit Sweater",
             "Active Shorts",
-            "Cargo Pants"
-        ]
+            "Cargo Pants",
+        ],
+
+        "variants": [
+            "XS",
+            "S",
+            "M",
+            "L",
+            "XL",
+            "XXL",
+        ],
     },
 
     "Accessories": {
 
         "return_rate": 0.04,
-        "markup": 3.0,
+
+        "markup": (2.6, 3.4),
+
         "base_cost": (8, 40),
 
         "adjectives": [
@@ -126,7 +170,7 @@ PRODUCT_CATALOG = {
             "Minimal",
             "Signature",
             "Travel",
-            "Classic"
+            "Classic",
         ],
 
         "products": [
@@ -135,14 +179,24 @@ PRODUCT_CATALOG = {
             "Card Holder",
             "Duffel Bag",
             "Water Bottle",
-            "Cap"
-        ]
+            "Cap",
+        ],
+
+        "variants": [
+            "Black",
+            "Navy",
+            "Tan",
+            "Grey",
+            "Olive",
+        ],
     },
 
     "Home & Living": {
 
         "return_rate": 0.05,
-        "markup": 2.2,
+
+        "markup": (1.8, 2.6),
+
         "base_cost": (10, 90),
 
         "adjectives": [
@@ -151,7 +205,7 @@ PRODUCT_CATALOG = {
             "Classic",
             "Modern",
             "Elegant",
-            "Organic"
+            "Organic",
         ],
 
         "products": [
@@ -160,42 +214,156 @@ PRODUCT_CATALOG = {
             "Throw Blanket",
             "Serving Board",
             "Storage Basket",
-            "Diffuser"
-        ]
-    }
+            "Diffuser",
+        ],
+
+        "variants": [
+            "Small",
+            "Medium",
+            "Large",
+            "Set of 2",
+            "Set of 4",
+        ],
+    },
+
 }
 
 # =============================================================================
 # WAREHOUSES
 # =============================================================================
+# serves_countries determines which customer countries a warehouse is
+# eligible to fulfill orders for. Retail Stores only serve their own
+# country (walk-in / local delivery). Distribution Centers serve a
+# regional cluster, since they exist specifically to cover countries
+# without their own physical store (e.g. no Malaysia or Singapore
+# retail store exists, so the DCs in those countries pick up local
+# + regional online fulfillment).
+# =============================================================================
 
 WAREHOUSES = [
 
+    # ----------------------------------------------------------
+    # Distribution Centers
+    # ----------------------------------------------------------
+
     {
+        "warehouse_id": "WH001",
         "warehouse_code": "SG_DC",
         "warehouse_name": "Singapore Distribution Center",
-        "country": "Singapore"
+        "warehouse_type": "Distribution Center",
+        "country": "Singapore",
+        "city": "Singapore",
+        "region": "Singapore",
+        "serves_countries": ["Singapore", "Malaysia"],
     },
 
     {
-        "warehouse_code": "PH_DC",
-        "warehouse_name": "Manila Distribution Center",
-        "country": "Philippines"
-    },
-
-    {
+        "warehouse_id": "WH002",
         "warehouse_code": "MY_DC",
         "warehouse_name": "Kuala Lumpur Distribution Center",
-        "country": "Malaysia"
+        "warehouse_type": "Distribution Center",
+        "country": "Malaysia",
+        "city": "Kuala Lumpur",
+        "region": "Malaysia",
+        "serves_countries": ["Malaysia", "Thailand", "Vietnam"],
+    },
+
+    # ----------------------------------------------------------
+    # Retail Stores / Fulfillment Stores
+    # ----------------------------------------------------------
+
+    {
+        "warehouse_id": "WH003",
+        "warehouse_code": "PH_MNL",
+        "warehouse_name": "Manila Flagship Store",
+        "warehouse_type": "Retail Store",
+        "country": "Philippines",
+        "city": "Manila",
+        "region": "Philippines",
+        "serves_countries": ["Philippines"],
     },
 
     {
-        "warehouse_code": "TH_DC",
-        "warehouse_name": "Bangkok Distribution Center",
-        "country": "Thailand"
-    }
+        "warehouse_id": "WH004",
+        "warehouse_code": "PH_CEB",
+        "warehouse_name": "Cebu Store",
+        "warehouse_type": "Retail Store",
+        "country": "Philippines",
+        "city": "Cebu",
+        "region": "Philippines",
+        "serves_countries": ["Philippines"],
+    },
+
+    {
+        "warehouse_id": "WH005",
+        "warehouse_code": "TH_BKK",
+        "warehouse_name": "Bangkok Store",
+        "warehouse_type": "Retail Store",
+        "country": "Thailand",
+        "city": "Bangkok",
+        "region": "Thailand",
+        "serves_countries": ["Thailand"],
+    },
+
+    {
+        "warehouse_id": "WH006",
+        "warehouse_code": "VN_HCM",
+        "warehouse_name": "Ho Chi Minh Store",
+        "warehouse_type": "Retail Store",
+        "country": "Vietnam",
+        "city": "Ho Chi Minh City",
+        "region": "Vietnam",
+        "serves_countries": ["Vietnam"],
+    },
+
+    # ----------------------------------------------------------
+    # Returns Center
+    # ----------------------------------------------------------
+
+    {
+        "warehouse_id": "WH007",
+        "warehouse_code": "SG_RTN",
+        "warehouse_name": "Singapore Returns Center",
+        "warehouse_type": "Returns Center",
+        "country": "Singapore",
+        "city": "Singapore",
+        "region": "Singapore",
+        "serves_countries": ["Singapore", "Malaysia", "Thailand", "Philippines", "Vietnam"],
+    },
 
 ]
+
+# =============================================================================
+# CUSTOMER MARKETS
+# =============================================================================
+
+CUSTOMER_COUNTRIES = {
+
+    "Singapore": 0.15,
+
+    "Malaysia": 0.20,
+
+    "Thailand": 0.20,
+
+    "Philippines": 0.25,
+
+    "Vietnam": 0.20,
+
+}
+
+# =============================================================================
+# FAKER LOCALES
+# =============================================================================
+
+FAKER_LOCALES = {
+
+    "Singapore": "en_US",       # Faker has no dedicated en_SG; closest general English locale
+    "Malaysia": "en_US",        # ms_MY is not a valid/available Faker locale
+    "Thailand": "th_TH",
+    "Philippines": "en_PH",
+    "Vietnam": "vi_VN",
+
+}
 
 # =============================================================================
 # SALES CHANNELS
@@ -204,9 +372,62 @@ WAREHOUSES = [
 CHANNELS = {
 
     "Shopify": 0.40,
+
     "Shopee": 0.25,
+
     "Lazada": 0.20,
-    "Retail": 0.15
+
+    "Retail": 0.15,
+
+}
+
+# =============================================================================
+# ORDER STATUS
+# =============================================================================
+
+ORDER_STATUS = {
+
+    "Pending": 0.05,
+
+    "Processing": 0.10,
+
+    "Shipped": 0.25,
+
+    "Delivered": 0.55,
+
+    "Cancelled": 0.05,
+
+}
+
+# =============================================================================
+# PAYMENT METHODS
+# =============================================================================
+
+PAYMENT_METHODS = {
+
+    "Credit Card": 0.40,
+
+    "Digital Wallet": 0.30,
+
+    "Bank Transfer": 0.15,
+
+    "Cash on Delivery": 0.15,
+
+}
+
+# =============================================================================
+# SHIPMENT STATUS
+# =============================================================================
+
+SHIPMENT_STATUS = {
+
+    "Pending": 0.05,
+
+    "In Transit": 0.20,
+
+    "Delivered": 0.70,
+
+    "Failed Delivery": 0.05,
 
 }
 
@@ -217,9 +438,83 @@ CHANNELS = {
 RETURN_REASONS = {
 
     "Sizing Issue": 0.45,
+
     "Damaged": 0.20,
+
     "Not as Expected": 0.15,
+
     "Customer Remorse": 0.12,
-    "Wrong Item": 0.08
+
+    "Wrong Item": 0.08,
+
+}
+
+# =============================================================================
+# INVENTORY MOVEMENT TYPES
+# =============================================================================
+
+INVENTORY_MOVEMENT_TYPES = {
+
+    "Inbound Purchase": 0.25,
+
+    "Customer Sale": 0.45,
+
+    "Customer Return": 0.08,
+
+    "Stock Transfer": 0.12,
+
+    "Inventory Adjustment": 0.05,
+
+    "Damaged Inventory": 0.05,
+
+}
+
+# =============================================================================
+# SEASONALITY
+# =============================================================================
+# Monthly demand multipliers applied when sampling order_date, so
+# order volume isn't flat across the simulation window. Weighted
+# toward regional shopping events relevant to SEA e-commerce
+# (9.9/10.10/11.11/12.12 flash sales, year-end holidays).
+# These are relative weights, not probabilities — they get
+# normalized wherever they're consumed.
+# =============================================================================
+
+SEASONALITY_MULTIPLIERS = {
+
+    1: 0.90,   # Jan  - post-holiday lull
+    2: 0.85,   # Feb  - slowest month
+    3: 0.90,   # Mar
+    4: 0.90,   # Apr
+    5: 0.95,   # May
+    6: 0.95,   # Jun
+    7: 0.90,   # Jul
+    8: 0.90,   # Aug
+    9: 1.05,   # Sep  - 9.9 sale
+    10: 1.10,  # Oct  - 10.10 sale
+    11: 1.35,  # Nov  - 11.11, biggest SEA shopping event
+    12: 1.40,  # Dec  - 12.12 + year-end holidays
+
+}
+
+# =============================================================================
+# CUSTOMER ORDER FREQUENCY
+# =============================================================================
+# Relative likelihood a customer generates an order, by loyalty tier.
+# Higher-tier customers order more often — this is what creates
+# realistic repeat-purchase concentration (a small share of customers
+# driving a disproportionate share of order volume) rather than every
+# customer ordering with equal probability.
+# =============================================================================
+
+LOYALTY_ORDER_FREQUENCY_WEIGHTS = {
+
+    "Bronze": 1.0,
+
+    "Silver": 1.6,
+
+    "Gold": 2.4,
+
+    "Platinum": 3.5,
 
 }
