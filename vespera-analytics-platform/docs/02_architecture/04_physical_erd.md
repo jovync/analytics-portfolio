@@ -2,9 +2,11 @@
 
 **Project:** Vespera Analytics Platform  
 **Sprint:** 2 – Enterprise Architecture  
-**Document Version:** 2.0  
+**Document Version:** 2.1  
 **Status:** Approved  
 **Target Engine:** Google BigQuery (Standard SQL)  
+
+> **v2.1 change note:** `dim_store` merged into `dim_warehouse`; `dim_promotion` and `fact_manufacturing` removed (no source data). `warehouse_sk` natural key and type columns renamed `facility_code`/`facility_type` → `warehouse_code`/`warehouse_type` to match the actual source field names in `raw_warehouses`. See `03_star_schema.md` v1.2 for the modeling rationale.
 
 ---
 
@@ -104,8 +106,7 @@ BigQuery primary and foreign key constraints are strictly **`NOT ENFORCED`**. Th
 flowchart LR
     Date[dim_date] --> Sales((fact_sales))
     Customer[dim_customer] --> Sales
-    Store[dim_store] --> Sales
-    Promotion[dim_promotion] --> Sales
+    Warehouse[dim_warehouse] --> Sales
     Product[dim_product] --> Sales
 ```
 
@@ -125,17 +126,10 @@ flowchart LR
         Warehouse2[dim_warehouse] --> Inv_Fact
     end
 
-    subgraph MFG[Manufacturing]
-        Date3[dim_date] --> Mfg_Fact((fact_manufacturing))
-        Supplier2[dim_supplier] --> Mfg_Fact
-        Product3[dim_product] --> Mfg_Fact
-    end
-
     subgraph RET[Returns]
         Date4[dim_date] --> Ret_Fact((fact_returns))
         Customer2[dim_customer] --> Ret_Fact
         Product4[dim_product] --> Ret_Fact
-        Store2[dim_store] --> Ret_Fact
         Warehouse3[dim_warehouse] --> Ret_Fact
     end
 ```
@@ -150,8 +144,7 @@ erDiagram
     dim_date ||--o{ fact_sales : "order_date_key"
     dim_customer ||--o{ fact_sales : "customer_key"
     dim_product ||--o{ fact_sales : "product_key"
-    dim_store ||--o{ fact_sales : "store_key"
-    dim_promotion ||--o{ fact_sales : "promotion_key"
+    dim_warehouse ||--o{ fact_sales : "warehouse_key"
 
     dim_date ||--o{ fact_purchase_orders : "po_date_key"
     dim_supplier ||--o{ fact_purchase_orders : "supplier_key"
@@ -162,14 +155,9 @@ erDiagram
     dim_product ||--o{ fact_inventory_daily : "product_key"
     dim_warehouse ||--o{ fact_inventory_daily : "warehouse_key"
 
-    dim_date ||--o{ fact_manufacturing : "batch_initiated_date_key"
-    dim_supplier ||--o{ fact_manufacturing : "supplier_key"
-    dim_product ||--o{ fact_manufacturing : "product_key"
-
     dim_date ||--o{ fact_returns : "return_date_key"
     dim_customer ||--o{ fact_returns : "customer_key"
     dim_product ||--o{ fact_returns : "product_key"
-    dim_store ||--o{ fact_returns : "store_key"
     dim_warehouse ||--o{ fact_returns : "warehouse_key"
 ```
 
@@ -180,8 +168,7 @@ erDiagram
 | **`fact_sales`** | `order_date_key` | `dim_date.date_key` | Partition: `DATE(order_timestamp)` |
 | | `customer_key` | `dim_customer.customer_key` | Cluster Key |
 | | `product_key` | `dim_product.product_key` | Cluster Key |
-| | `store_key` | `dim_store.store_key` | Cluster Key |
-| | `promotion_key` | `dim_promotion.promotion_key` | Attribute Join |
+| | `warehouse_key` | `dim_warehouse.warehouse_key` | Cluster Key |
 | **`fact_purchase_orders`** | `po_date_key` | `dim_date.date_key` | Partition: `DATE(po_timestamp)` |
 | | `supplier_key` | `dim_supplier.supplier_key` | Cluster Key |
 | | `product_key` | `dim_product.product_key` | Cluster Key |
@@ -189,13 +176,9 @@ erDiagram
 | **`fact_inventory_daily`** | `snapshot_date_key` | `dim_date.date_key` | Partition: `snapshot_date` |
 | | `product_key` | `dim_product.product_key` | Cluster Key |
 | | `warehouse_key` | `dim_warehouse.warehouse_key` | Cluster Key |
-| **`fact_manufacturing`** | `batch_initiated_date_key` | `dim_date.date_key` | Partition: `DATE(batch_initiated_timestamp)` |
-| | `supplier_key` | `dim_supplier.supplier_key` | Cluster Key |
-| | `product_key` | `dim_product.product_key` | Cluster Key |
 | **`fact_returns`** | `return_date_key` | `dim_date.date_key` | Partition: `DATE(return_timestamp)` |
 | | `customer_key` | `dim_customer.customer_key` | Attribute Join |
 | | `product_key` | `dim_product.product_key` | Cluster Key |
-| | `store_key` | `dim_store.store_key` | Cluster Key |
 | | `warehouse_key` | `dim_warehouse.warehouse_key` | Cluster Key |
 
 ---
@@ -262,19 +245,6 @@ CREATE TABLE IF NOT EXISTS vespera_dw.dim_customer (
 )
 CLUSTER BY global_customer_id, email_address;
 
--- dim_store (SCD Type 1)
-CREATE TABLE IF NOT EXISTS vespera_dw.dim_store (
-    store_key INT64 NOT NULL,
-    store_code STRING NOT NULL,
-    store_name STRING NOT NULL,
-    channel_class STRING NOT NULL,
-    region_name STRING,
-    country_code STRING NOT NULL,
-    local_currency_code STRING NOT NULL,
-    operating_status STRING NOT NULL,
-    PRIMARY KEY (store_key) NOT ENFORCED
-);
-
 -- dim_supplier (SCD Type 1)
 CREATE TABLE IF NOT EXISTS vespera_dw.dim_supplier (
     supplier_key INT64 NOT NULL,
@@ -288,31 +258,19 @@ CREATE TABLE IF NOT EXISTS vespera_dw.dim_supplier (
 );
 
 -- dim_warehouse (SCD Type 1)
+-- Single conformed dimension covering Distribution Centers, Retail Stores,
+-- and the Returns Center (warehouse_type) — sourced 1:1 from raw_warehouses.
+-- There is no separate dim_store.
 CREATE TABLE IF NOT EXISTS vespera_dw.dim_warehouse (
     warehouse_key INT64 NOT NULL,
-    facility_code STRING NOT NULL,
+    warehouse_code STRING NOT NULL,
     warehouse_name STRING NOT NULL,
-    facility_type STRING NOT NULL,
+    warehouse_type STRING NOT NULL,
     country_code STRING NOT NULL,
-    maximum_capacity_units INT64,
-    operating_status STRING NOT NULL,
+    city_name STRING,
+    region_name STRING,
+    serves_countries ARRAY<STRING>,
     PRIMARY KEY (warehouse_key) NOT ENFORCED
-);
-
--- dim_promotion (SCD Type 2)
-CREATE TABLE IF NOT EXISTS vespera_dw.dim_promotion (
-    promotion_key INT64 NOT NULL,
-    promo_code STRING NOT NULL,
-    campaign_name STRING NOT NULL,
-    promotion_type STRING NOT NULL,
-    discount_type STRING NOT NULL,
-    discount_value_amount NUMERIC,
-    start_date DATE,
-    end_date DATE,
-    effective_start_date TIMESTAMP NOT NULL,
-    effective_end_date TIMESTAMP,
-    is_current_flag BOOL NOT NULL,
-    PRIMARY KEY (promotion_key) NOT ENFORCED
 );
 ```
 
@@ -328,10 +286,10 @@ CREATE TABLE IF NOT EXISTS vespera_dw.fact_sales (
     order_timestamp TIMESTAMP NOT NULL,
     customer_key INT64 NOT NULL,
     product_key INT64 NOT NULL,
-    store_key INT64 NOT NULL,
-    promotion_key INT64 NOT NULL,
+    warehouse_key INT64 NOT NULL,
     order_number STRING NOT NULL,
     line_item_number INT64 NOT NULL,
+    sales_channel_code STRING NOT NULL,
     payment_method STRING,
     fulfillment_status STRING,
     quantity_ordered INT64 NOT NULL,
@@ -346,11 +304,10 @@ CREATE TABLE IF NOT EXISTS vespera_dw.fact_sales (
     FOREIGN KEY (order_date_key) REFERENCES vespera_dw.dim_date(date_key) NOT ENFORCED,
     FOREIGN KEY (customer_key) REFERENCES vespera_dw.dim_customer(customer_key) NOT ENFORCED,
     FOREIGN KEY (product_key) REFERENCES vespera_dw.dim_product(product_key) NOT ENFORCED,
-    FOREIGN KEY (store_key) REFERENCES vespera_dw.dim_store(store_key) NOT ENFORCED,
-    FOREIGN KEY (promotion_key) REFERENCES vespera_dw.dim_promotion(promotion_key) NOT ENFORCED
+    FOREIGN KEY (warehouse_key) REFERENCES vespera_dw.dim_warehouse(warehouse_key) NOT ENFORCED
 )
 PARTITION BY DATE(order_timestamp)
-CLUSTER BY store_key, product_key, customer_key;
+CLUSTER BY warehouse_key, product_key, customer_key;
 
 -- fact_purchase_orders
 CREATE TABLE IF NOT EXISTS vespera_dw.fact_purchase_orders (
@@ -399,31 +356,6 @@ CREATE TABLE IF NOT EXISTS vespera_dw.fact_inventory_daily (
 PARTITION BY snapshot_date
 CLUSTER BY warehouse_key, product_key;
 
--- fact_manufacturing
-CREATE TABLE IF NOT EXISTS vespera_dw.fact_manufacturing (
-    manufacturing_batch_key INT64 NOT NULL,
-    batch_initiated_date_key INT64 NOT NULL,
-    batch_initiated_timestamp TIMESTAMP NOT NULL,
-    batch_completed_date_key INT64,
-    supplier_key INT64 NOT NULL,
-    product_key INT64 NOT NULL,
-    batch_number STRING NOT NULL,
-    qa_inspection_status STRING NOT NULL,
-    defect_reason_code STRING,
-    planned_units_quantity INT64 NOT NULL,
-    produced_units_quantity INT64 NOT NULL,
-    qa_passed_units_quantity INT64 NOT NULL,
-    defect_units_quantity INT64 NOT NULL,
-    total_batch_cost_amount NUMERIC NOT NULL,
-    unit_batch_cost_amount NUMERIC NOT NULL,
-    PRIMARY KEY (manufacturing_batch_key) NOT ENFORCED,
-    FOREIGN KEY (batch_initiated_date_key) REFERENCES vespera_dw.dim_date(date_key) NOT ENFORCED,
-    FOREIGN KEY (supplier_key) REFERENCES vespera_dw.dim_supplier(supplier_key) NOT ENFORCED,
-    FOREIGN KEY (product_key) REFERENCES vespera_dw.dim_product(product_key) NOT ENFORCED
-)
-PARTITION BY DATE(batch_initiated_timestamp)
-CLUSTER BY supplier_key, product_key;
-
 -- fact_returns
 CREATE TABLE IF NOT EXISTS vespera_dw.fact_returns (
     return_fact_key INT64 NOT NULL,
@@ -432,7 +364,6 @@ CREATE TABLE IF NOT EXISTS vespera_dw.fact_returns (
     original_order_date_key INT64 NOT NULL,
     customer_key INT64 NOT NULL,
     product_key INT64 NOT NULL,
-    store_key INT64 NOT NULL,
     warehouse_key INT64 NOT NULL,
     return_authorization_number STRING NOT NULL,
     disposition_code STRING NOT NULL,
@@ -444,11 +375,10 @@ CREATE TABLE IF NOT EXISTS vespera_dw.fact_returns (
     FOREIGN KEY (return_date_key) REFERENCES vespera_dw.dim_date(date_key) NOT ENFORCED,
     FOREIGN KEY (customer_key) REFERENCES vespera_dw.dim_customer(customer_key) NOT ENFORCED,
     FOREIGN KEY (product_key) REFERENCES vespera_dw.dim_product(product_key) NOT ENFORCED,
-    FOREIGN KEY (store_key) REFERENCES vespera_dw.dim_store(store_key) NOT ENFORCED,
     FOREIGN KEY (warehouse_key) REFERENCES vespera_dw.dim_warehouse(warehouse_key) NOT ENFORCED
 )
 PARTITION BY DATE(return_timestamp)
-CLUSTER BY store_key, product_key, warehouse_key;
+CLUSTER BY warehouse_key, product_key;
 ```
 
 ---
@@ -466,4 +396,3 @@ CLUSTER BY store_key, product_key, warehouse_key;
 ---
 
 > **Next Document:** `05_data_dictionary.md`
-

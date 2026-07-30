@@ -2,8 +2,10 @@
 
 **Project:** Vespera Lifestyle Analytics Platform  
 **Sprint:** 2 – Enterprise Architecture  
-**Document Version:** 1.1  
+**Document Version:** 1.2  
 **Status:** Approved  
+
+> **v1.2 change note:** Removed the Store Dimension (§3.3) and Promotion Dimension (§3.6) — merged into the Warehouse Dimension and dropped respectively, since no separate store master data or promotions source exists in the raw layer. Removed the Manufacturing Fact (§4.4) for the same reason. Warehouse Dimension columns renamed to match actual source fields (`facility_code`/`facility_type` → `warehouse_code`/`warehouse_type`). Sections renumbered accordingly. See `03_star_schema.md` v1.2 and `04_physical_erd.md` v2.1.
 
 ---
 
@@ -154,28 +156,7 @@ The repository provides complete metadata coverage across all major analytical d
 
 ---
 
-## 3.3 Store Dimension (`dim_store`)
-
-**Business Owner:** Director of Retail Operations  
-**Technical Steward:** Analytics Engineering  
-**Source System:** Shopify POS / Store Master Data  
-**Refresh Frequency:** Daily  
-**SCD Strategy:** Type 1
-
-| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
-| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `store_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(store_code)` | Store surrogate key. |
-| `store_code` | `STRING` | No | NK | Internal | Store Master | `UPPER(TRIM(store_code))` | Business store identifier. |
-| `store_name` | `STRING` | No | - | Public | Store Master | `TRIM(store_name)` | Store display name. |
-| `channel_class` | `STRING` | No | - | Public | Store Master | Standardized Mapping | Retail Boutique, Web Store, Marketplace. |
-| `region_name` | `STRING` | Yes | - | Internal | Store Master | Standardized Mapping | Sales region. |
-| `country_code` | `STRING` | No | - | Public | Store Master | ISO-3166 Standard | Country identifier. |
-| `local_currency_code` | `STRING` | No | - | Internal | Finance | ISO-4217 Standard | Store operating currency. |
-| `operating_status` | `STRING` | No | - | Internal | Store Master | Standardized Mapping | Open, Closed, Under Construction, etc. |
-
----
-
-## 3.4 Supplier Dimension (`dim_supplier`)
+## 3.3 Supplier Dimension (`dim_supplier`)
 
 **Business Owner:** Director of Procurement  
 **Technical Steward:** Analytics Engineering  
@@ -195,7 +176,7 @@ The repository provides complete metadata coverage across all major analytical d
 
 ---
 
-## 3.5 Warehouse Dimension (`dim_warehouse`)
+## 3.4 Warehouse Dimension (`dim_warehouse`)
 
 **Business Owner:** Director of Supply Chain  
 **Technical Steward:** Analytics Engineering  
@@ -203,41 +184,22 @@ The repository provides complete metadata coverage across all major analytical d
 **Refresh Frequency:** Daily  
 **SCD Strategy:** Type 1
 
-| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
-| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `warehouse_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(facility_code)` | Warehouse surrogate key. |
-| `facility_code` | `STRING` | No | NK | Internal | WMS | `UPPER(TRIM(facility_code))` | Warehouse identifier. |
-| `warehouse_name` | `STRING` | No | - | Public | WMS | `TRIM(name)` | Warehouse name. |
-| `facility_type` | `STRING` | No | - | Public | WMS | Standard Mapping | DC, Fulfillment Center, Cross Dock, etc. |
-| `country_code` | `STRING` | No | - | Public | WMS | ISO Standard | Country location. |
-| `maximum_capacity_units` | `INT64` | Yes | - | Internal | WMS | Direct Mapping | Maximum storage capacity. |
-| `operating_status` | `STRING` | No | - | Internal | WMS | Direct Mapping | Operational status. |
-
----
-
-## 3.6 Promotion Dimension (`dim_promotion`)
-
-**Business Owner:** Head of Marketing  
-**Technical Steward:** Analytics Engineering  
-**Source System:** Shopify Promotions / Marketing Platform  
-**Refresh Frequency:** Daily  
-**SCD Strategy:** Type 2
+Single conformed dimension covering Distribution Centers, Retail Stores, and the Returns Center — Vespera has one physical/fulfillment location entity, not a separate store master. `warehouse_type` distinguishes the three facility roles.
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `promotion_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(promo_code || CAST(dbt_valid_from AS STRING))` | Promotion surrogate key. |
-| `promo_code` | `STRING` | No | NK | Internal | Marketing Platform | `UPPER(TRIM(code))` | Promotion identifier. |
-| `campaign_name` | `STRING` | No | - | Public | Marketing Platform | Direct Mapping | Campaign name. |
-| `promotion_type` | `STRING` | No | - | Public | Marketing Platform | Standard Mapping | Discount, Bundle, Coupon, etc. |
-| `discount_type` | `STRING` | No | - | Public | Marketing Platform | Standard Mapping | Percentage or Fixed Amount. |
-| `discount_value_amount` | `NUMERIC(10,2)` | Yes | - | Internal | Marketing Platform | Direct Mapping | Promotion value. |
-| `effective_start_date` | `TIMESTAMP` | No | - | Internal | dbt | SCD2 Metadata | Promotion effective start. |
-| `effective_end_date` | `TIMESTAMP` | Yes | - | Internal | dbt | SCD2 Metadata | Promotion effective end. |
-| `is_current_flag` | `BOOL` | No | - | Internal | dbt | `dbt_valid_to IS NULL` | Active promotion record. |
+| `warehouse_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(warehouse_code)` | Warehouse surrogate key. |
+| `warehouse_code` | `STRING` | No | NK | Internal | Warehouse Master | `UPPER(TRIM(warehouse_code))` | Business warehouse identifier. |
+| `warehouse_name` | `STRING` | No | - | Public | Warehouse Master | `TRIM(warehouse_name)` | Warehouse display name. |
+| `warehouse_type` | `STRING` | No | - | Public | Warehouse Master | Direct Mapping | Distribution Center, Retail Store, or Returns Center. |
+| `country_code` | `STRING` | No | - | Public | Warehouse Master | ISO-3166 Standard | Country location. |
+| `city_name` | `STRING` | Yes | - | Public | Warehouse Master | `TRIM(city)` | City location. |
+| `region_name` | `STRING` | Yes | - | Internal | Warehouse Master | Direct Mapping | Sales/fulfillment region. |
+| `serves_countries` | `ARRAY<STRING>` | No | - | Internal | Warehouse Master | Direct Mapping | Countries this facility is eligible to fulfill orders for. Retail Stores serve only their own country; Distribution Centers serve a regional cluster. |
 
 ---
 
-## 3.7 Date Dimension (`dim_date`)
+## 3.5 Date Dimension (`dim_date`)
 
 **Business Owner:** Enterprise Analytics  
 **Technical Steward:** Analytics Engineering  
@@ -281,10 +243,10 @@ Fact tables capture measurable business events at their declared grain. Each fac
 | `order_date_key` | `INT64` | No | FK | Internal | `created_at` | `FORMAT_TIMESTAMP('%Y%m%d', created_at)` | Foreign key to `dim_date`. |
 | `customer_sk` | `INT64` | No | FK | Restricted | Customer Lookup | SCD2 Lookup | Customer dimension reference. |
 | `product_sk` | `INT64` | No | FK | Internal | SKU | Product Lookup | Product sold. |
-| `store_sk` | `INT64` | No | FK | Internal | Store ID | Store Lookup | Sales channel reference. |
-| `promotion_sk` | `INT64` | Yes | FK | Internal | Promotion Engine | Promotion Lookup | Applied promotion. |
+| `warehouse_sk` | `INT64` | No | FK | Internal | Warehouse ID | Warehouse Lookup | Fulfilling warehouse reference. |
 | `order_number` | `STRING` | No | DD | Internal | Shopify | Direct Mapping | Business order identifier. |
 | `line_item_number` | `INT64` | No | DD | Internal | Shopify | Direct Mapping | Line number within order. |
+| `sales_channel_code` | `STRING` | No | DD | Internal | Order Header | Direct Mapping | Shopify, Shopee, Lazada, or Retail. Order-level attribute, independent of the fulfilling warehouse. |
 | `payment_method` | `STRING` | Yes | DD | Confidential | Payment Gateway | Standard Mapping | Payment method used. |
 | `fulfillment_status` | `STRING` | Yes | DD | Internal | OMS | Direct Mapping | Fulfillment lifecycle status. |
 | `quantity_ordered` | `INT64` | No | - | Internal | Shopify | Direct Mapping | Units sold. |
@@ -346,32 +308,7 @@ Fact tables capture measurable business events at their declared grain. Each fac
 
 ---
 
-## 4.4 Manufacturing Fact (`fact_manufacturing`)
-
-**Business Owner:** Manufacturing Operations Director  
-**Technical Steward:** Analytics Engineering  
-**Source System:** Manufacturing Execution System (MES)  
-**Grain:** One record per manufacturing batch  
-**Refresh Frequency:** Hourly
-
-| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
-| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `manufacturing_batch_key` | `INT64` | No | PK | Internal | MES | Hash | Manufacturing batch surrogate key. |
-| `batch_initiated_date_key` | `INT64` | No | FK | Internal | MES | Date Lookup | Batch start date. |
-| `batch_completed_date_key` | `INT64` | Yes | FK | Internal | MES | Date Lookup | Batch completion date. |
-| `supplier_sk` | `INT64` | No | FK | Internal | Vendor | Supplier Lookup | Manufacturing partner. |
-| `product_sk` | `INT64` | No | FK | Internal | SKU | Product Lookup | Manufactured SKU. |
-| `batch_number` | `STRING` | No | DD | Internal | MES | Direct Mapping | Manufacturing batch number. |
-| `planned_units_quantity` | `INT64` | No | - | Internal | MES | Direct Mapping | Planned production. |
-| `produced_units_quantity` | `INT64` | No | - | Internal | MES | Direct Mapping | Completed units. |
-| `qa_passed_units_quantity` | `INT64` | No | - | Internal | QA | Direct Mapping | Passed inspection. |
-| `defect_units_quantity` | `INT64` | No | - | Internal | QA | Direct Mapping | Failed inspection. |
-| `total_batch_cost_amount` | `NUMERIC(12,2)` | No | - | Confidential | ERP | Direct Mapping | Total manufacturing cost. |
-| `unit_batch_cost_amount` | `NUMERIC(10,2)` | No | - | Restricted | Calculated | Total ÷ Produced | Cost per finished unit. |
-
----
-
-## 4.5 Returns Fact (`fact_returns`)
+## 4.4 Returns Fact (`fact_returns`)
 
 **Business Owner:** Director of Customer Experience  
 **Technical Steward:** Analytics Engineering  
@@ -385,7 +322,6 @@ Fact tables capture measurable business events at their declared grain. Each fac
 | `return_date_key` | `INT64` | No | FK | Internal | Returns | Date Lookup | Return transaction date. |
 | `customer_sk` | `INT64` | No | FK | Restricted | Customer | Lookup | Customer reference. |
 | `product_sk` | `INT64` | No | FK | Internal | SKU | Lookup | Returned product. |
-| `store_sk` | `INT64` | No | FK | Internal | Store | Lookup | Return location. |
 | `warehouse_sk` | `INT64` | No | FK | Internal | Warehouse | Lookup | Receiving warehouse. |
 | `returned_quantity` | `INT64` | No | - | Internal | Returns | Direct Mapping | Quantity returned. |
 | `refunded_amount` | `NUMERIC(12,2)` | No | - | Confidential | Finance | Direct Mapping | Refund value. |
@@ -415,10 +351,10 @@ The Vespera data platform enforces automated data quality validation during ever
 ## Entity Integrity
 
 1. **Surrogate Key Uniqueness**  
-   Primary keys across `dim_customer`, `dim_product`, and `dim_store` must be unique (`COUNT(sk) = COUNT(DISTINCT sk)`).
+   Primary keys across `dim_customer`, `dim_product`, and `dim_warehouse` must be unique (`COUNT(sk) = COUNT(DISTINCT sk)`).
 
 2. **Natural Key Uniqueness**  
-   Active business keys (`customer_id`, `sku`, `store_code`) must never contain duplicates.
+   Active business keys (`customer_id`, `sku`, `warehouse_code`) must never contain duplicates.
 
 3. **Single Active SCD Record**  
    Each `customer_id` and `sku` may have only one active (`is_active = TRUE`) record.

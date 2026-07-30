@@ -2,8 +2,10 @@
 
 **Project:** Vespera Analytics Platform  
 **Sprint:** 2 – Enterprise Architecture  
-**Document Version:** 1.1  
+**Document Version:** 1.2  
 **Status:** Approved  
+
+> **v1.2 change note:** `dim_store` merged into `dim_warehouse` — Vespera has one physical/fulfillment location entity, not two. `fact_sales` and `fact_returns` now join `dim_warehouse` directly; `sales_channel_code` moves to `fact_sales` as a degenerate dimension. `dim_promotion` and `fact_manufacturing` removed — no corresponding raw source data exists. See `02_logical_data_model.md` v1.2 for the upstream rationale.
 
 ---
 
@@ -25,7 +27,7 @@ Translating the logical entities from `02_logical_data_model.md` into physical d
 Vespera follows classic **Kimball Dimensional Modeling** principles optimized for cloud data warehouses (Google BigQuery):
 
 1. **Declared Grain First:** Every fact table has an explicitly declared, atomic physical grain. No query aggregation or surrogate key generation occurs before the grain is locked.
-2. **Conformed Dimensions:** Key dimensions (`dim_product`, `dim_customer`, `dim_store`, `dim_date`) are standardized across all business processes to ensure consistent cross-process reporting.
+2. **Conformed Dimensions:** Key dimensions (`dim_product`, `dim_customer`, `dim_warehouse`, `dim_date`) are standardized across all business processes to ensure consistent cross-process reporting.
 3. **Surrogate Keys:** Integer surrogate keys isolate the warehouse from source-system natural key volatility. All dimension tables standardize on surrogate key `-1` for unknown or unmapped members.
 4. **Fact Additivity Classification:** Measures are explicitly categorized as fully additive, semi-additive, or non-additive to guide correct SQL aggregation logic in downstream BI tools.
 
@@ -35,13 +37,14 @@ Vespera follows classic **Kimball Dimensional Modeling** principles optimized fo
 
 The Bus Matrix illustrates how conformed dimensions intersect with core enterprise business processes:
 
-| Business Process (Fact Table) | Date | Customer | Product | Store / Channel | Warehouse | Supplier | Promotion |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Sales Transactions** (`fact_sales`) | X | X | X | X | | | X |
-| **Procurement & Purchasing** (`fact_purchase_orders`) | X | | X | | X | X | |
-| **Inventory Snapshots** (`fact_inventory_daily`) | X | | X | | X | | |
-| **Manufacturing Batches** (`fact_manufacturing`) | X | | X | | | X | |
-| **Returns & Refunds** (`fact_returns`) | X | X | X | X | X | | |
+| Business Process (Fact Table) | Date | Customer | Product | Warehouse | Supplier |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Sales Transactions** (`fact_sales`) | X | X | X | X | |
+| **Procurement & Purchasing** (`fact_purchase_orders`) | X | | X | X | X |
+| **Inventory Snapshots** (`fact_inventory_daily`) | X | | X | X | |
+| **Returns & Refunds** (`fact_returns`) | X | X | X | X | |
+
+> Sales channel (Shopify/Shopee/Lazada/Retail) is carried as a degenerate dimension directly on `fact_sales`, not as a conformed dimension — it's an order-level attribute, not a shared master entity.
 
 ---
 
@@ -54,10 +57,8 @@ The following dimensions are shared across multiple business processes and serve
 | `dim_date` | Enterprise calendar & fiscal time intelligence | `full_date` | Static |
 | `dim_customer` | Omnichannel customer analytics & segmentation | `global_customer_id` | Type 2 |
 | `dim_product` | Merchandise hierarchy & SKU-level product analytics | `sku_code` | Type 2 |
-| `dim_store` | Physical boutique & digital channel performance | `store_code` | Type 1 |
 | `dim_supplier` | Vendor management, procurement & lead time tracking | `vendor_code` | Type 1 |
-| `dim_warehouse` | Fulfillment facility & inventory location tracking | `facility_code` | Type 1 |
-| `dim_promotion` | Campaign attribution, discounts & offer analytics | `promo_code` | Type 2 |
+| `dim_warehouse` | Fulfillment facility, retail store & inventory location tracking | `warehouse_code` | Type 1 |
 
 ---
 
@@ -75,22 +76,18 @@ flowchart LR
     D1[dim_date]
     D2[dim_customer]
     D3[dim_product]
-    D4[dim_store]
     D5[dim_supplier]
     D6[dim_warehouse]
-    D7[dim_promotion]
 
     F1[(fact_sales)]
     F2[(fact_purchase_orders)]
     F3[(fact_inventory_daily)]
-    F4[(fact_manufacturing)]
     F5[(fact_returns)]
 
     D1 --> F1
     D2 --> F1
     D3 --> F1
-    D4 --> F1
-    D7 --> F1
+    D6 --> F1
 
     D1 --> F2
     D3 --> F2
@@ -101,14 +98,9 @@ flowchart LR
     D3 --> F3
     D6 --> F3
 
-    D1 --> F4
-    D3 --> F4
-    D5 --> F4
-
     D1 --> F5
     D2 --> F5
     D3 --> F5
-    D4 --> F5
     D6 --> F5
 ```
 
@@ -133,9 +125,8 @@ Captures line-item level commercial sales activity across physical boutiques, di
   * `order_date_key` (FK $\rightarrow$ `dim_date`)
   * `customer_key` (FK $\rightarrow$ `dim_customer`)
   * `product_key` (FK $\rightarrow$ `dim_product`)
-  * `store_key` (FK $\rightarrow$ `dim_store`)
-  * `promotion_key` (FK $\rightarrow$ `dim_promotion`)
-* **Degenerate Dimensions:** `order_number`, `line_item_number`, `payment_method`, `fulfillment_status`
+  * `warehouse_key` (FK $\rightarrow$ `dim_warehouse`) — the fulfilling warehouse
+* **Degenerate Dimensions:** `order_number`, `line_item_number`, `sales_channel_code` (Shopify, Shopee, Lazada, Retail), `payment_method`, `fulfillment_status`
 * **Measures:**
   * `quantity_ordered` (Fully Additive Integer)
   * `unit_list_price_amount` (Non-Additive Currency)
@@ -190,29 +181,9 @@ Captures daily end-of-day stock balances and valuation across fulfillment facili
 
 ---
 
-### 6.4 `fact_manufacturing` (Accumulating Snapshot Fact)
-Tracks the lifecycle of discrete manufacturing batch runs from supplier dispatch to final warehouse deposit.
+> **`fact_manufacturing` removed.** No manufacturing batch source data is generated for Vespera (finished goods are procured directly from suppliers — see `fact_purchase_orders`). Reintroduce this fact only if a future data pass adds a manufacturing/production source table.
 
-* **Declared Grain:** One row per manufacturing production batch run.
-* **Fact Table Type:** Accumulating Snapshot Fact Table
-* **Keys & Timestamps:**
-  * `manufacturing_batch_key` (Primary Key - Surrogate)
-  * `batch_initiated_date_key` (FK $\rightarrow$ `dim_date`)
-  * `batch_completed_date_key` (FK $\rightarrow$ `dim_date`)
-  * `supplier_key` (FK $\rightarrow$ `dim_supplier`)
-  * `product_key` (FK $\rightarrow$ `dim_product`)
-* **Degenerate Dimensions:** `batch_number`, `qa_inspection_status`, `defect_reason_code`
-* **Measures:**
-  * `planned_units_quantity` (Fully Additive Integer)
-  * `produced_units_quantity` (Fully Additive Integer)
-  * `qa_passed_units_quantity` (Fully Additive Integer)
-  * `defect_units_quantity` (Fully Additive Integer)
-  * `total_batch_cost_amount` (Fully Additive Currency)
-  * `unit_batch_cost_amount` (Non-Additive Currency)
-
----
-
-### 6.5 `fact_returns` (Transaction Fact)
+### 6.4 `fact_returns` (Transaction Fact)
 Monitors post-purchase customer return events, disposition outcomes, and refund calculations.
 
 * **Declared Grain:** One row per returned order line item.
@@ -223,7 +194,6 @@ Monitors post-purchase customer return events, disposition outcomes, and refund 
   * `original_order_date_key` (FK $\rightarrow$ `dim_date`)
   * `customer_key` (FK $\rightarrow$ `dim_customer`)
   * `product_key` (FK $\rightarrow$ `dim_product`)
-  * `store_key` (FK $\rightarrow$ `dim_store`)
   * `warehouse_key` (FK $\rightarrow$ `dim_warehouse`)
 * **Degenerate Dimensions:** `return_authorization_number`, `disposition_code`, `return_reason_code`
 * **Measures:**
@@ -239,8 +209,7 @@ erDiagram
     DIM_DATE ||--o{ FACT_SALES : joins
     DIM_CUSTOMER ||--o{ FACT_SALES : joins
     DIM_PRODUCT ||--o{ FACT_SALES : joins
-    DIM_STORE ||--o{ FACT_SALES : joins
-    DIM_PROMOTION ||--o{ FACT_SALES : joins
+    DIM_WAREHOUSE ||--o{ FACT_SALES : joins
 
     DIM_DATE ||--o{ FACT_PURCHASE_ORDERS : joins
     DIM_SUPPLIER ||--o{ FACT_PURCHASE_ORDERS : joins
@@ -251,14 +220,9 @@ erDiagram
     DIM_PRODUCT ||--o{ FACT_INVENTORY_DAILY : joins
     DIM_WAREHOUSE ||--o{ FACT_INVENTORY_DAILY : joins
 
-    DIM_DATE ||--o{ FACT_MANUFACTURING : joins
-    DIM_PRODUCT ||--o{ FACT_MANUFACTURING : joins
-    DIM_SUPPLIER ||--o{ FACT_MANUFACTURING : joins
-
     DIM_DATE ||--o{ FACT_RETURNS : joins
     DIM_CUSTOMER ||--o{ FACT_RETURNS : joins
     DIM_PRODUCT ||--o{ FACT_RETURNS : joins
-    DIM_STORE ||--o{ FACT_RETURNS : joins
     DIM_WAREHOUSE ||--o{ FACT_RETURNS : joins
 ```
 
@@ -285,16 +249,7 @@ erDiagram
   * `primary_city_name`, `primary_country_code`
   * `effective_start_date`, `effective_end_date`, `is_current_flag`
 
-### 7.3 `dim_store`
-* **SCD Strategy:** **Type 1** (Overwrites attribute changes; store location and channel class remain fixed reference state).
-* **Key Attributes:**
-  * `store_key` (Surrogate Primary Key)
-  * `store_code` (Natural Key)
-  * `store_name`, `channel_class` (Retail Boutique, Web, Marketplace)
-  * `region_name`, `country_code`, `local_currency_code`
-  * `operating_status`
-
-### 7.4 `dim_supplier`
+### 7.3 `dim_supplier`
 * **SCD Strategy:** **Type 1** (Overwrites attribute changes).
 * **Key Attributes:**
   * `supplier_key` (Surrogate Primary Key)
@@ -302,24 +257,16 @@ erDiagram
   * `vendor_name`, `country_code`, `primary_contact_email`
   * `quality_rating_score`, `payment_terms_code`
 
-### 7.5 `dim_warehouse`
-* **SCD Strategy:** **Type 1** (Overwrites attribute changes).
+### 7.4 `dim_warehouse`
+* **SCD Strategy:** **Type 1** (Overwrites attribute changes). Single conformed dimension covering Distribution Centers, Retail Stores, and the Returns Center — there is no separate store dimension.
 * **Key Attributes:**
   * `warehouse_key` (Surrogate Primary Key)
-  * `facility_code` (Natural Key)
-  * `warehouse_name`, `facility_type`, `country_code`
-  * `maximum_capacity_units`, `operating_status`
+  * `warehouse_code` (Natural Key)
+  * `warehouse_name`, `warehouse_type` (Distribution Center, Retail Store, Returns Center)
+  * `country_code`, `city_name`, `region_name`
+  * `serves_countries` (array of country codes this facility is eligible to fulfill orders for)
 
-### 7.6 `dim_promotion`
-* **SCD Strategy:** **Type 2** (Tracks campaign updates, discount rules, and tier changes).
-* **Key Attributes:**
-  * `promotion_key` (Surrogate Primary Key)
-  * `promo_code` (Natural Key)
-  * `campaign_name`, `promotion_type`, `discount_type`
-  * `discount_value_amount`, `start_date`, `end_date`
-  * `effective_start_date`, `effective_end_date`, `is_current_flag`
-
-### 7.7 `dim_date`
+### 7.5 `dim_date`
 * **SCD Strategy:** **Static / Non-Changing Dimension** (Pre-populated calendar table covering 2020–2035).
 * **Key Attributes:**
   * `date_key` (Format: `YYYYMMDD`)
