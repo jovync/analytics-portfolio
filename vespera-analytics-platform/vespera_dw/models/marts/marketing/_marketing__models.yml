@@ -1,0 +1,74 @@
+version: 2
+
+models:
+
+  - name: dim_campaign
+    description: >
+      Conformed campaign dimension (SCD Type 1). Added in the v1.2
+      KPI Framework <-> Star Schema reconciliation to close the CAC
+      data gap -- see docs/06_kpi_schema_reconciliation.md.
+    columns:
+
+      - name: campaign_key
+        description: Surrogate primary key.
+        tests:
+          - unique
+          - not_null
+
+      - name: campaign_id
+        description: Natural key, platform-issued.
+        tests:
+          - unique
+          - not_null
+
+      - name: marketing_platform
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Meta', 'TikTok', 'Klaviyo']
+
+      - name: acquisition_channel_name
+        description: >
+          Must match customers.py's ACQUISITION_CHANNELS values exactly
+          for first-touch attribution to resolve correctly.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Facebook Ads', 'Instagram', 'TikTok', 'Email Campaign']
+
+  - name: fact_marketing_spend
+    description: >
+      Transaction fact, one row per campaign per platform per day.
+      Added in the v1.2 KPI Framework <-> Star Schema reconciliation
+      to close the CAC data gap -- see docs/06_kpi_schema_reconciliation.md.
+    columns:
+
+      - name: marketing_spend_key
+        description: Surrogate primary key.
+        tests:
+          - unique
+          - not_null
+
+      - name: campaign_key
+        description: FK to dim_campaign. -1 indicates an unmapped campaign (should not occur).
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_campaign')
+                field: campaign_key
+
+      - name: spend_date_key
+        description: FK to dim_date, YYYYMMDD integer format.
+        tests:
+          - not_null
+
+      - name: spend_amount
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true

@@ -601,3 +601,70 @@ MARKETPLACE_COMMISSION_RATES = {
 RESTOCKING_FEE_APPLICABLE_REASONS = {"Customer Remorse"}
 
 RESTOCKING_FEE_RATE = 0.10
+
+# =============================================================================
+# CONFIG ADDITIONS — append these blocks to config.py
+# Added to support fact_ar_aging_daily and fact_marketing_spend
+# (KPI Framework <-> Star Schema reconciliation, v1.2)
+# =============================================================================
+
+# -----------------------------------------------------------------------
+# AR INVOICES
+# -----------------------------------------------------------------------
+# Simplification note: Vespera's customer base is modeled as pure B2C
+# (no wholesale/B2B segment exists). Per project decision, invoices are
+# generated against existing retail customers as a simplification rather
+# than modeling a separate wholesale account type. See
+# docs/06_kpi_schema_reconciliation.md, Section 5.
+# -----------------------------------------------------------------------
+
+# Share of orders that are invoiced on credit terms rather than settled
+# immediately at point of sale. Kept deliberately small since this is a
+# predominantly D2C/e-commerce business — DSO is a minority-case metric
+# here, not the primary cash-flow story.
+PCT_ORDERS_ON_CREDIT_TERMS = 0.07
+
+PAYMENT_TERMS_WEIGHTS = {
+
+    "NET15": 0.45,
+
+    "NET30": 0.40,
+
+    "NET60": 0.15,
+
+}
+
+PAYMENT_TERMS_DAYS = {
+
+    "NET15": 15,
+
+    "NET30": 30,
+
+    "NET60": 60,
+
+}
+
+# Outcome distribution for invoiced orders. "Still Open" is only sampled
+# for invoices whose due_date falls late enough in the simulation window
+# that an unpaid balance is plausible (see _is_recent_enough_to_be_open
+# in ar_invoices.py).
+INVOICE_OUTCOME_WEIGHTS = {
+
+    "Paid On Time": 0.65,
+
+    "Paid Late": 0.22,
+
+    "Partially Paid": 0.06,
+
+    "Still Open": 0.07,
+
+}
+
+# -----------------------------------------------------------------------
+# MARKETING CAMPAIGNS & SPEND
+# -----------------------------------------------------------------------
+# No additions needed here — marketing_spend.py already exists in the
+# repo with its own MARKETING_CHANNELS config and campaign generation
+# logic. acquisition_attribution.py consumes its output directly rather
+# than requiring new config.
+# -----------------------------------------------------------------------

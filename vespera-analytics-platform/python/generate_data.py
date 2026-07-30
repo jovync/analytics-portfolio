@@ -35,6 +35,9 @@ from generators.returns import generate_returns
 from generators.inventory_movements import generate_inventory_movements
 from generators.marketing_spend import generate_marketing_spend
 
+from generators.acquisition_attribution import generate_acquisition_attribution
+from generators.ar_invoices import generate_ar_invoices
+
 
 # --------------------------------------------------
 # Configuration
@@ -200,6 +203,26 @@ def main():
     )
 
     # --------------------------------------------------
+    # Customer Acquisition Attribution
+    # --------------------------------------------------
+
+    print("\nGenerating Customer Acquisition Attribution...")
+    acquisition_attribution_df = generate_acquisition_attribution(
+        customers_df=customers_df,
+        marketing_spend_df=marketing_spend_df,
+    )
+
+    # --------------------------------------------------
+    # AR Invoices
+    # --------------------------------------------------
+
+    print("Generating AR Invoices...")
+    ar_invoices_df = generate_ar_invoices(
+        orders_df=orders_df,
+        order_items_df=order_items_df,
+    )
+
+    # --------------------------------------------------
     # Inventory Ledger
     # --------------------------------------------------
 
@@ -292,6 +315,16 @@ def main():
     index=False,
     )
 
+    acquisition_attribution_df.to_csv(
+        DATA_FOLDER / "acquisition_attribution.csv",
+        index=False,
+    )
+
+    ar_invoices_df.to_csv(
+        DATA_FOLDER / "ar_invoices.csv",
+        index=False,
+    )
+
     # --------------------------------------------------
     # Summary
     # --------------------------------------------------
@@ -313,6 +346,8 @@ def main():
     print(f"Returns:                      {len(returns_df):>10,}")
     print(f"Inventory Movements:          {len(inventory_movements_df):>10,}")
     print(f"Marketing Spend:              {len(marketing_spend_df):>10,}")
+    print(f"Acquisition Attribution:      {len(acquisition_attribution_df):>10,}")
+    print(f"AR Invoices:                  {len(ar_invoices_df):>10,}")
 
     print("\nCSV files saved to:")
     print(DATA_FOLDER.resolve())

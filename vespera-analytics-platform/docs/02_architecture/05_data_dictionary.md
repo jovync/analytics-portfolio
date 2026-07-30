@@ -2,12 +2,9 @@
 
 **Project:** Vespera Lifestyle Analytics Platform  
 **Sprint:** 2 – Enterprise Architecture  
-**Document Version:** 1.3  
+**Document Version:** 1.2  
 **Status:** Approved  
-
-> **v1.2 change note:** Removed the Store Dimension (§3.3) and Promotion Dimension (§3.6) — merged into the Warehouse Dimension and dropped respectively, since no separate store master data or promotions source exists in the raw layer. Removed the Manufacturing Fact (§4.4) for the same reason. Warehouse Dimension columns renamed to match actual source fields (`facility_code`/`facility_type` → `warehouse_code`/`warehouse_type`). Sections renumbered accordingly. See `03_star_schema.md` v1.2 and `04_physical_erd.md` v2.1.
-
-> **v1.3 change note:** Full reconciliation against the actual dbt implementation. `dim_customer` and `dim_product` corrected from Type 2 to **Type 1** and their field lists rewritten to match what's actually generated (`dim_product` previously described an apparel-specific schema — color/size/season/collection — that was never part of this dataset). `fact_inventory_daily` (§4.3) rebuilt from scratch to reflect its actual derived measures (`units_sold_qty`/`units_returned_qty`/`units_received_qty`) instead of the never-implemented `quantity_allocated`/`quantity_in_transit`/`inventory_valuation_amount`. `fact_purchase_orders` (§4.2) gained the missing `purchase_price_variance_amount` measure and dropped the nonexistent `po_line_number`. `fact_returns` (§4.4) `refunded_amount`/`restocking_fee_amount` now explicitly marked as derived, not raw-sourced. §6 rewritten to honestly mark which of the 11 original data quality rules are actually implemented vs. aspirational. §8 lineage diagram corrected to reflect the real Python → BigQuery → dbt pipeline rather than the originally-envisioned Shopify/NetSuite/Klaviyo source systems. §9 milestone table updated with the three engineering docs and correct file paths.
+**Change Log (v1.2):** Added `dim_campaign`, `fact_ar_aging_daily`, and `fact_marketing_spend` metadata to close the DSO and CAC gaps identified in KPI Framework reconciliation. See `06_kpi_schema_reconciliation.md`.
 
 ---
 
@@ -91,6 +88,9 @@ The repository provides complete metadata coverage across all major analytical d
 | Sales | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Inventory | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Procurement | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Manufacturing | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Finance (AR) *(v1.2)* | ✓ | ✓ | ✓ | ✓ | ⏳ |
+| Marketing (Spend) *(v1.2)* | ✓ | ✓ | ✓ | ✓ | ⏳ |
 
 ---
 
@@ -105,31 +105,28 @@ The repository provides complete metadata coverage across all major analytical d
 
 ---
 
-# 3. Enterprise Dimensions (`vespera_dw.dim_*`)
+# 3. Enterprise Dimensions (`vespera_dw_prod.dim_*`)
 
 ## 3.1 Customer Dimension (`dim_customer`)
 
 **Business Owner:** Head of CRM & Loyalty  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Customer Master Data  
-**Refresh Frequency:** Batch (on generation/reload)  
-**SCD Strategy:** Type 1 (current-state only — see `03_star_schema.md` §4 for why Type 2 is deferred, not omitted by oversight)
+**Source System:** Shopify Direct / Klaviyo Marketing Platform  
+**Refresh Frequency:** Near Real-Time (CDC via Fivetran)  
+**SCD Strategy:** Type 2 (Historical tracking for customer profile changes)
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `customer_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(customer_id)` | Surrogate key identifying a customer record. |
-| `customer_id` | `STRING` | No | NK | Internal | Customer Master | `TRIM(customer_id)` | Natural customer identifier. Pattern: `CUST-[0-9]+`. |
-| `first_name` | `STRING` | Yes | - | Restricted / PII | Customer Master | `TRIM(first_name)` | Customer given name. |
-| `last_name` | `STRING` | Yes | - | Restricted / PII | Customer Master | `TRIM(last_name)` | Customer family name. |
-| `email_address` | `STRING` | Yes | - | Restricted / PII | Customer Master | `LOWER(TRIM(email))` | Primary customer email address. |
-| `phone_number` | `STRING` | Yes | - | Restricted / PII | Customer Master | Direct Mapping | Customer phone number. |
-| `customer_country` | `STRING` | No | - | Public | Customer Master | Direct Mapping | Customer's country. |
-| `gender` | `STRING` | Yes | - | Restricted / PII | Customer Master | Direct Mapping | Self-reported gender. |
-| `birth_date` | `DATE` | Yes | - | Restricted / PII | Customer Master | Direct Mapping | Date of birth. |
-| `customer_since` | `DATE` | No | - | Internal | Customer Master | Direct Mapping | Account signup date. |
-| `loyalty_tier` | `STRING` | No | - | Internal | Customer Master | Direct Mapping | Bronze, Silver, Gold, or Platinum. |
-| `acquisition_channel` | `STRING` | Yes | - | Internal | Customer Master | Direct Mapping | Original acquisition source for the customer. |
-| `customer_status` | `STRING` | No | - | Internal | Customer Master | Direct Mapping | Account status. |
+| `customer_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(customer_id || CAST(dbt_valid_from AS STRING))` | Surrogate key uniquely identifying a customer dimension record over time. |
+| `customer_id` | `STRING` | No | NK | Internal | `raw_shopify.customers.id` | `TRIM(CAST(id AS STRING))` | Natural customer identifier. Pattern: `CUST-[0-9]+`. |
+| `first_name` | `STRING` | Yes | - | Restricted / PII | `raw_shopify.customers.first_name` | `INITCAP(TRIM(first_name))` | Customer given name. Masked in non-production environments. |
+| `last_name` | `STRING` | Yes | - | Restricted / PII | `raw_shopify.customers.last_name` | `INITCAP(TRIM(last_name))` | Customer family name. Masked in non-production environments. |
+| `email` | `STRING` | Yes | - | Restricted / PII | `raw_shopify.customers.email` | `LOWER(TRIM(email))` | Primary customer email address. |
+| `loyalty_tier` | `STRING` | No | - | Internal | `raw_klaviyo.profiles.tier` | `COALESCE(tier,'Bronze')` | Loyalty program tier. Valid values: Bronze, Silver, Gold, Vespera Elite. |
+| `acquisition_channel` | `STRING` | Yes | - | Internal | `raw_ga4.sessions.first_user_source` | Standardized marketing attribution mapping | Original acquisition source for the customer. |
+| `acquisition_campaign_sk` | `INT64` | Yes | FK | Internal | Campaign Lookup | First-touch attribution, set at first order | *Added v1.2.* FK to `dim_campaign`; identifies the campaign that acquired this customer. See `06_kpi_schema_reconciliation.md` Section 3.3 for attribution model rationale. |
+| `created_at_utc` | `TIMESTAMP` | No | - | Internal | `raw_shopify.customers.created_at` | Timestamp normalization | UTC timestamp when the customer account was created. |
+| `is_active` | `BOOL` | No | - | Internal | N/A | `dbt_valid_to IS NULL` | Indicates the current active SCD Type 2 version of the customer record. |
 
 ---
 
@@ -137,78 +134,114 @@ The repository provides complete metadata coverage across all major analytical d
 
 **Business Owner:** VP of Merchandising  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Product Master Data  
-**Refresh Frequency:** Batch (on generation/reload)  
-**SCD Strategy:** Type 1 (current-state only — see `03_star_schema.md` §4)
+**Source System:** NetSuite ERP  
+**Refresh Frequency:** Daily  
+**SCD Strategy:** Type 2 (Tracks changes to merchandising attributes over time)
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `product_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(product_id)` | Surrogate key identifying a product record. |
-| `product_id` | `STRING` | No | NK | Internal | Product Master | `TRIM(product_id)` | Natural product identifier. |
-| `sku_code` | `STRING` | No | NK | Internal | Product Master | `TRIM(sku)` | Unique Stock Keeping Unit identifier. |
-| `product_name` | `STRING` | No | - | Public | Product Master | `TRIM(product_name)` | Commercial product name. |
-| `category_name` | `STRING` | No | - | Public | Product Master | Direct Mapping | Top-level merchandise category (Personal Care, Apparel, Accessories, Home & Living). |
-| `brand_name` | `STRING` | No | - | Public | Product Master | Direct Mapping | Product brand. |
-| `base_cost_sgd` | `NUMERIC(10,2)` | No | - | Restricted | Product Master | Direct Mapping | Standard product cost in SGD. |
-| `msrp_sgd` | `NUMERIC(10,2)` | No | - | Confidential | Product Master | Direct Mapping | Manufacturer Suggested Retail Price in SGD. |
-| `launch_date` | `DATE` | No | - | Internal | Product Master | Direct Mapping | Date the product became sellable. |
-| `lifecycle_status` | `STRING` | No | - | Internal | Product Master | Direct Mapping | New Launch, Active, or Discontinued. |
-| `discontinued_date` | `DATE` | Yes | - | Internal | Product Master | Direct Mapping | Date the product was discontinued, if applicable. |
-| `popularity_weight` | `FLOAT64` | No | - | Internal | Product Master | Direct Mapping | Pareto-distributed demand-skew weight; drives realistic 80/20 sales concentration in downstream sampling. |
-| `return_rate` | `FLOAT64` | No | - | Internal | Product Master | Direct Mapping | Category-level expected return rate. |
-| `is_currently_sellable` | `BOOL` | No | - | Internal | dbt | `NOT discontinued AND launched` | Derived flag — false if discontinued or not yet launched as of today. |
+| `product_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(sku || CAST(dbt_valid_from AS STRING))` | Surrogate key uniquely identifying a product version. |
+| `sku` | `STRING` | No | NK | Internal | `raw_netsuite.items.item_id` | `UPPER(TRIM(item_id))` | Unique Stock Keeping Unit identifier. Format: `VES-[SEASON]-[CAT]-[COLOR]-[SIZE]`. |
+| `product_name` | `STRING` | No | - | Public | `raw_netsuite.items.display_name` | `TRIM(display_name)` | Commercial product name. |
+| `brand_name` | `STRING` | No | - | Public | `raw_netsuite.items.brand` | `TRIM(brand)` | Product brand. |
+| `category_name` | `STRING` | No | - | Public | `raw_netsuite.items.category` | Category mapping | Top-level merchandise category. |
+| `subcategory_name` | `STRING` | Yes | - | Public | `raw_netsuite.items.subcategory` | Subcategory mapping | Detailed merchandise classification. |
+| `collection_name` | `STRING` | Yes | - | Internal | `raw_netsuite.items.collection` | `TRIM(collection)` | Collection or product line. |
+| `season_code` | `STRING` | Yes | - | Internal | `raw_netsuite.items.season` | `UPPER(TRIM(season))` | Seasonal assortment identifier. |
+| `color_name` | `STRING` | Yes | - | Public | `raw_netsuite.items.color` | `INITCAP(TRIM(color))` | Primary product color. |
+| `size_code` | `STRING` | Yes | - | Public | `raw_netsuite.items.size` | `UPPER(TRIM(size))` | Product size code. |
+| `current_msrp` | `NUMERIC(10,2)` | No | - | Confidential | `raw_netsuite.items.price` | `ROUND(CAST(price AS NUMERIC),2)` | Manufacturer Suggested Retail Price. |
+| `current_base_cost` | `NUMERIC(10,2)` | No | - | Restricted | `raw_netsuite.items.cost` | `ROUND(CAST(cost AS NUMERIC),2)` | Current standard product cost. |
+| `effective_start_date` | `TIMESTAMP` | No | - | Internal | dbt | SCD2 Metadata | Version effective start timestamp. |
+| `effective_end_date` | `TIMESTAMP` | Yes | - | Internal | dbt | SCD2 Metadata | Version effective end timestamp. |
+| `is_current_flag` | `BOOL` | No | - | Internal | dbt | `dbt_valid_to IS NULL` | Indicates active product record. |
 
 ---
 
-## 3.3 Supplier Dimension (`dim_supplier`)
+## 3.3 Store Dimension (`dim_store`)
 
-**Business Owner:** Director of Procurement  
+**Business Owner:** Director of Retail Operations  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Supplier Master Data  
-**Refresh Frequency:** Batch (on generation/reload)  
+**Source System:** Shopify POS / Store Master Data  
+**Refresh Frequency:** Daily  
 **SCD Strategy:** Type 1
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `supplier_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(supplier_id)` | Supplier surrogate key. |
-| `supplier_id` | `STRING` | No | NK | Internal | Supplier Master | `TRIM(supplier_id)` | Business supplier identifier. |
-| `supplier_name` | `STRING` | No | - | Internal | Supplier Master | `TRIM(supplier_name)` | Supplier name. |
-| `supplier_tier` | `STRING` | No | - | Internal | Supplier Master | Direct Mapping | Strategic, Preferred, or Standard. |
-| `category_specialty` | `STRING` | No | - | Internal | Supplier Master | Direct Mapping | Product category this supplier specializes in. |
-| `supplier_country` | `STRING` | No | - | Public | Supplier Master | Direct Mapping | Supplier country. |
-| `supplier_currency` | `STRING` | No | - | Internal | Supplier Master | Direct Mapping | Supplier's invoicing currency. |
-| `payment_terms` | `STRING` | Yes | - | Internal | Supplier Master | Direct Mapping | Payment agreement terms. |
-| `lead_time_days` | `INT64` | No | - | Internal | Supplier Master | Direct Mapping | Standard fulfillment lead time. |
-| `quality_rating` | `FLOAT64` | Yes | - | Internal | Supplier Master | Direct Mapping | Supplier quality score. |
-| `preferred_supplier` | `BOOL` | No | - | Internal | Supplier Master | Direct Mapping | Preferred-vendor flag, correlated with tier. |
+| `store_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(store_code)` | Store surrogate key. |
+| `store_code` | `STRING` | No | NK | Internal | Store Master | `UPPER(TRIM(store_code))` | Business store identifier. |
+| `store_name` | `STRING` | No | - | Public | Store Master | `TRIM(store_name)` | Store display name. |
+| `channel_class` | `STRING` | No | - | Public | Store Master | Standardized Mapping | Retail Boutique, Web Store, Marketplace. |
+| `region_name` | `STRING` | Yes | - | Internal | Store Master | Standardized Mapping | Sales region. |
+| `country_code` | `STRING` | No | - | Public | Store Master | ISO-3166 Standard | Country identifier. |
+| `local_currency_code` | `STRING` | No | - | Internal | Finance | ISO-4217 Standard | Store operating currency. |
+| `operating_status` | `STRING` | No | - | Internal | Store Master | Standardized Mapping | Open, Closed, Under Construction, etc. |
 
 ---
 
-## 3.4 Warehouse Dimension (`dim_warehouse`)
+## 3.4 Supplier Dimension (`dim_supplier`)
+
+**Business Owner:** Director of Procurement  
+**Technical Steward:** Analytics Engineering  
+**Source System:** NetSuite ERP  
+**Refresh Frequency:** Daily  
+**SCD Strategy:** Type 1
+
+| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `supplier_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(vendor_code)` | Supplier surrogate key. |
+| `vendor_code` | `STRING` | No | NK | Internal | ERP Vendors | `UPPER(TRIM(vendor_code))` | Business supplier identifier. |
+| `vendor_name` | `STRING` | No | - | Internal | ERP Vendors | `TRIM(vendor_name)` | Supplier name. |
+| `country_code` | `STRING` | No | - | Public | ERP Vendors | ISO Standard | Supplier country. |
+| `primary_contact_email` | `STRING` | Yes | - | Restricted | ERP Vendors | `LOWER(TRIM(email))` | Supplier contact email. |
+| `quality_rating_score` | `NUMERIC(5,2)` | Yes | - | Internal | QA | Direct Mapping | Supplier quality score. |
+| `payment_terms_code` | `STRING` | Yes | - | Internal | Finance | Direct Mapping | Payment agreement code. |
+
+---
+
+## 3.5 Warehouse Dimension (`dim_warehouse`)
 
 **Business Owner:** Director of Supply Chain  
 **Technical Steward:** Analytics Engineering  
 **Source System:** Warehouse Master Data  
-**Refresh Frequency:** Batch (on generation/reload)  
+**Refresh Frequency:** Daily  
 **SCD Strategy:** Type 1
-
-Single conformed dimension covering Distribution Centers, Retail Stores, and the Returns Center — Vespera has one physical/fulfillment location entity, not a separate store master. `warehouse_type` distinguishes the three facility roles.
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `warehouse_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(warehouse_id)` | Warehouse surrogate key. |
-| `warehouse_id` | `STRING` | No | NK | Internal | Warehouse Master | `TRIM(warehouse_id)` | Natural warehouse identifier. |
-| `warehouse_code` | `STRING` | No | NK | Internal | Warehouse Master | `UPPER(TRIM(warehouse_code))` | Business warehouse identifier. |
-| `warehouse_name` | `STRING` | No | - | Public | Warehouse Master | `TRIM(warehouse_name)` | Warehouse display name. |
-| `warehouse_type` | `STRING` | No | - | Public | Warehouse Master | Direct Mapping | Distribution Center, Retail Store, or Returns Center. |
-| `warehouse_country` | `STRING` | No | - | Public | Warehouse Master | ISO-3166 Standard | Country location. |
-| `warehouse_city` | `STRING` | Yes | - | Public | Warehouse Master | `TRIM(city)` | City location. |
-| `warehouse_region` | `STRING` | Yes | - | Internal | Warehouse Master | Direct Mapping | Sales/fulfillment region. |
-| `serves_countries` | `STRING` | No | - | Internal | Warehouse Master | Direct Mapping | Countries this facility is eligible to fulfill orders for. Retail Stores serve only their own country; Distribution Centers serve a regional cluster. |
+| `warehouse_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(facility_code)` | Warehouse surrogate key. |
+| `facility_code` | `STRING` | No | NK | Internal | WMS | `UPPER(TRIM(facility_code))` | Warehouse identifier. |
+| `warehouse_name` | `STRING` | No | - | Public | WMS | `TRIM(name)` | Warehouse name. |
+| `facility_type` | `STRING` | No | - | Public | WMS | Standard Mapping | DC, Fulfillment Center, Cross Dock, etc. |
+| `country_code` | `STRING` | No | - | Public | WMS | ISO Standard | Country location. |
+| `maximum_capacity_units` | `INT64` | Yes | - | Internal | WMS | Direct Mapping | Maximum storage capacity. |
+| `operating_status` | `STRING` | No | - | Internal | WMS | Direct Mapping | Operational status. |
 
 ---
 
-## 3.5 Date Dimension (`dim_date`)
+## 3.6 Promotion Dimension (`dim_promotion`)
+
+**Business Owner:** Head of Marketing  
+**Technical Steward:** Analytics Engineering  
+**Source System:** Shopify Promotions / Marketing Platform  
+**Refresh Frequency:** Daily  
+**SCD Strategy:** Type 2
+
+| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `promotion_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(promo_code || CAST(dbt_valid_from AS STRING))` | Promotion surrogate key. |
+| `promo_code` | `STRING` | No | NK | Internal | Marketing Platform | `UPPER(TRIM(code))` | Promotion identifier. |
+| `campaign_name` | `STRING` | No | - | Public | Marketing Platform | Direct Mapping | Campaign name. |
+| `promotion_type` | `STRING` | No | - | Public | Marketing Platform | Standard Mapping | Discount, Bundle, Coupon, etc. |
+| `discount_type` | `STRING` | No | - | Public | Marketing Platform | Standard Mapping | Percentage or Fixed Amount. |
+| `discount_value_amount` | `NUMERIC(10,2)` | Yes | - | Internal | Marketing Platform | Direct Mapping | Promotion value. |
+| `effective_start_date` | `TIMESTAMP` | No | - | Internal | dbt | SCD2 Metadata | Promotion effective start. |
+| `effective_end_date` | `TIMESTAMP` | Yes | - | Internal | dbt | SCD2 Metadata | Promotion effective end. |
+| `is_current_flag` | `BOOL` | No | - | Internal | dbt | `dbt_valid_to IS NULL` | Active promotion record. |
+
+---
+
+## 3.7 Date Dimension (`dim_date`)
 
 **Business Owner:** Enterprise Analytics  
 **Technical Steward:** Analytics Engineering  
@@ -220,22 +253,39 @@ Single conformed dimension covering Distribution Centers, Retail Stores, and the
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
 | `date_key` | `INT64` | No | PK | Public | Calendar Generator | `FORMAT_DATE('%Y%m%d', full_date)` | Integer date surrogate key. |
 | `full_date` | `DATE` | No | NK | Public | Calendar Generator | Generated | Calendar date. |
-| `day_of_week_number` | `INT64` | No | - | Public | Calendar Generator | Generated | ISO day of week. |
 | `day_name` | `STRING` | No | - | Public | Calendar Generator | Generated | Monday, Tuesday, etc. |
-| `is_weekend_flag` | `BOOL` | No | - | Public | Calendar Generator | Generated | True for Saturday/Sunday. |
 | `week_number` | `INT64` | No | - | Public | Calendar Generator | Generated | ISO week number. |
 | `calendar_month_number` | `INT64` | No | - | Public | Calendar Generator | Generated | Calendar month. |
 | `month_name` | `STRING` | No | - | Public | Calendar Generator | Generated | Month name. |
 | `calendar_quarter_number` | `INT64` | No | - | Public | Calendar Generator | Generated | Calendar quarter. |
 | `calendar_year_number` | `INT64` | No | - | Public | Calendar Generator | Generated | Calendar year. |
-| `fiscal_year_number` | `INT64` | No | - | Internal | Calendar Generator | Generated | Fiscal year — assumed = calendar year, no evidence of a non-calendar fiscal year anywhere in source docs. |
-| `fiscal_quarter_number` | `INT64` | No | - | Internal | Calendar Generator | Generated | Fiscal quarter (= calendar quarter). |
-| `fiscal_month_number` | `INT64` | No | - | Internal | Calendar Generator | Generated | Fiscal month (= calendar month). |
-| `holiday_flag` | `BOOL` | No | - | Public | Calendar Generator | Generated | Simplified heuristic (New Year's, Christmas, and SEA e-commerce flash-sale dates 9/9, 10/10, 11/11, 12/12) — not a real per-country public holiday calendar. |
+| `fiscal_year_number` | `INT64` | No | - | Internal | Calendar Generator | Generated | Fiscal year. |
+| `fiscal_quarter_number` | `INT64` | No | - | Internal | Calendar Generator | Generated | Fiscal quarter. |
+| `holiday_flag` | `BOOL` | No | - | Public | Holiday Calendar | Generated | Indicates public holiday. |
 
 ---
 
-# 4. Enterprise Facts (`vespera_dw.fact_*`)
+## 3.8 Campaign Dimension (`dim_campaign`) *— Added v1.2*
+
+**Business Owner:** Marketing Director  
+**Technical Steward:** Analytics Engineering  
+**Source System:** Meta Ads API / Google Ads API / TikTok Ads API  
+**Refresh Frequency:** Daily  
+**SCD Strategy:** Type 1
+
+| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `campaign_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(campaign_id)` | Campaign surrogate key. |
+| `campaign_id` | `STRING` | No | NK | Internal | Ad Platform | `TRIM(campaign_id)` | Platform-issued campaign identifier. |
+| `campaign_name` | `STRING` | No | - | Internal | Ad Platform | Direct Mapping | Campaign display name. |
+| `marketing_platform` | `STRING` | No | - | Internal | Ad Platform | Standard Mapping | Meta, Google, or TikTok. |
+| `objective_type` | `STRING` | Yes | - | Internal | Ad Platform | Direct Mapping | Awareness, Conversion, Retargeting, etc. |
+| `start_date` | `DATE` | Yes | - | Internal | Ad Platform | Direct Mapping | Campaign start date. |
+| `end_date` | `DATE` | Yes | - | Internal | Ad Platform | Direct Mapping | Campaign end date. |
+
+---
+
+# 4. Enterprise Facts (`vespera_dw_prod.fact_*`)
 
 Fact tables capture measurable business events at their declared grain. Each fact references conformed dimensions using surrogate keys and stores additive, semi-additive, or non-additive business measures for enterprise reporting.
 
@@ -245,31 +295,31 @@ Fact tables capture measurable business events at their declared grain. Each fac
 
 **Business Owner:** VP of Retail & E-Commerce  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Order Management  
-**Grain:** One record per order line item  
-**Refresh Frequency:** Batch (on generation/reload)
+**Source System:** Shopify POS / Shopify Web Direct  
+**Grain:** One record per order line item per customer transaction  
+**Refresh Frequency:** Near Real-Time (15-minute micro-batches)
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `sales_fact_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(order_item_id)` | Unique surrogate key for each sales line. |
-| `order_date_key` | `INT64` | No | FK | Internal | `order_date` | Date Lookup | Foreign key to `dim_date`. |
-| `customer_key` | `INT64` | No | FK | Restricted | Customer Lookup | Lookup, `COALESCE(..., -1)` | Customer dimension reference. |
-| `product_key` | `INT64` | No | FK | Internal | SKU | Lookup, `COALESCE(..., -1)` | Product sold. |
-| `warehouse_key` | `INT64` | No | FK | Internal | Warehouse ID | Lookup, `COALESCE(..., -1)` | Fulfilling warehouse reference. |
-| `order_number` | `STRING` | No | DD | Internal | Order Header | Direct Mapping | Business order identifier. |
-| `line_item_number` | `INT64` | No | DD | Internal | dbt | `ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY order_item_id)` | Line number within order. |
-| `sales_channel_code` | `STRING` | No | DD | Internal | Order Header | Direct Mapping | Shopify, Shopee, Lazada, or Retail. Order-level attribute, independent of the fulfilling warehouse. |
-| `payment_method` | `STRING` | Yes | DD | Confidential | Order Header | Direct Mapping | Payment method used. |
-| `fulfillment_status` | `STRING` | Yes | DD | Internal | Order Header | Direct Mapping | Fulfillment lifecycle status. |
-| `quantity_ordered` | `INT64` | No | - | Internal | Order Line | Direct Mapping | Units sold. |
-| `unit_list_price_amount` | `NUMERIC(10,2)` | No | - | Confidential | Product Master | `dim_product.msrp_sgd` | MSRP before discounts. |
-| `unit_selling_price_amount` | `NUMERIC(10,2)` | No | - | Confidential | Order Line | Direct Mapping | Actual selling price. |
-| `gross_revenue_amount` | `NUMERIC(12,2)` | No | - | Confidential | Order Line | `quantity × selling_price` | Gross revenue. |
-| `discount_amount` | `NUMERIC(12,2)` | No | - | Confidential | Order Line | Direct Mapping | Discount amount. |
-| `tax_amount` | `NUMERIC(12,2)` | No | - | Internal | Order Line | Direct Mapping | Sales tax collected (flat rate by warehouse country). |
-| `net_revenue_amount` | `NUMERIC(12,2)` | No | - | Confidential | Order Line | `gross − discount` | Net revenue. |
-| `commission_amount` | `NUMERIC(12,2)` | No | - | Confidential | Order Line | Direct Mapping | Channel commission (Shopee 6%, Lazada 5%, Shopify/Retail 0%). |
-| `cogs_amount` | `NUMERIC(12,2)` | No | - | Restricted | Calculated | `quantity × dim_product.base_cost_sgd` | Cost of goods sold, at the product's **current** cost (Type 1 dimension — not cost-as-of-order-date). |
+| `sales_fact_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(order_id || line_item_number)` | Unique surrogate key for each sales line. |
+| `order_date_key` | `INT64` | No | FK | Internal | `created_at` | `FORMAT_TIMESTAMP('%Y%m%d', created_at)` | Foreign key to `dim_date`. |
+| `customer_sk` | `INT64` | No | FK | Restricted | Customer Lookup | SCD2 Lookup | Customer dimension reference. |
+| `product_sk` | `INT64` | No | FK | Internal | SKU | Product Lookup | Product sold. |
+| `store_sk` | `INT64` | No | FK | Internal | Store ID | Store Lookup | Sales channel reference. |
+| `promotion_sk` | `INT64` | Yes | FK | Internal | Promotion Engine | Promotion Lookup | Applied promotion. |
+| `order_number` | `STRING` | No | DD | Internal | Shopify | Direct Mapping | Business order identifier. |
+| `line_item_number` | `INT64` | No | DD | Internal | Shopify | Direct Mapping | Line number within order. |
+| `payment_method` | `STRING` | Yes | DD | Confidential | Payment Gateway | Standard Mapping | Payment method used. |
+| `fulfillment_status` | `STRING` | Yes | DD | Internal | OMS | Direct Mapping | Fulfillment lifecycle status. |
+| `payment_terms_code` | `STRING` | Yes | DD | Internal | NetSuite ERP | Direct Mapping | *Added v1.2.* Credit terms code (e.g., `NET30`, `NET60`, `DUE_ON_RECEIPT`); distinguishes credit sales for DSO's denominator. |
+| `quantity_ordered` | `INT64` | No | - | Internal | Shopify | Direct Mapping | Units sold. |
+| `unit_list_price_amount` | `NUMERIC(10,2)` | No | - | Confidential | Product Master | Direct Mapping | MSRP before discounts. |
+| `unit_selling_price_amount` | `NUMERIC(10,2)` | No | - | Confidential | Shopify | Direct Mapping | Actual selling price. |
+| `gross_revenue_amount` | `NUMERIC(12,2)` | No | - | Confidential | Calculated | `quantity × selling_price` | Gross revenue. |
+| `discount_amount` | `NUMERIC(12,2)` | No | - | Confidential | Promotion Engine | Sum Discounts | Discount amount. |
+| `tax_amount` | `NUMERIC(12,2)` | No | - | Internal | Tax Engine | Direct Mapping | Sales tax collected. |
+| `net_revenue_amount` | `NUMERIC(12,2)` | No | - | Confidential | Calculated | `gross - discount` | Net revenue. |
+| `cogs_amount` | `NUMERIC(12,2)` | No | - | Restricted | ERP | Product Cost Lookup | Cost of goods sold. |
 
 ---
 
@@ -277,77 +327,143 @@ Fact tables capture measurable business events at their declared grain. Each fac
 
 **Business Owner:** Director of Procurement  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Procurement System  
-**Grain:** One record per purchase order (each raw source row is already atomic — no separate PO-header-vs-line split in this source)  
-**Refresh Frequency:** Batch (on generation/reload)
+**Source System:** NetSuite ERP  
+**Grain:** One record per purchase order line item  
+**Refresh Frequency:** Hourly
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `purchase_order_fact_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(purchase_order_id)` | Purchase order surrogate key. |
-| `po_date_key` | `INT64` | No | FK | Internal | Procurement | Date Lookup | Purchase order date. |
-| `expected_delivery_date_key` | `INT64` | Yes | FK | Internal | Procurement | Date Lookup | Expected arrival date. |
-| `supplier_key` | `INT64` | No | FK | Internal | Vendor | Lookup, `COALESCE(..., -1)` | Supplier reference. |
-| `product_key` | `INT64` | No | FK | Internal | SKU | Lookup, `COALESCE(..., -1)` | Purchased SKU. |
-| `destination_warehouse_key` | `INT64` | No | FK | Internal | Warehouse | Lookup, `COALESCE(..., -1)` | Receiving warehouse. |
-| `po_number` | `STRING` | No | DD | Internal | Procurement | Direct Mapping | Purchase Order Number. |
-| `po_status_code` | `STRING` | No | DD | Internal | Procurement | Direct Mapping | Received or In Transit. |
-| `demand_tier` | `STRING` | No | DD | Internal | Procurement | Direct Mapping | Low, Medium, High, or Very High — percentile-rank bucket of the product's `popularity_weight`. |
-| `ordered_quantity` | `INT64` | No | - | Internal | Procurement | Direct Mapping | Quantity ordered. |
-| `received_quantity` | `INT64` | Yes | - | Internal | Procurement | Direct Mapping | Quantity received (0 if still In Transit). |
-| `unit_purchase_cost_amount` | `NUMERIC(10,2)` | No | - | Confidential | Procurement | Direct Mapping | Unit purchase cost. |
+| `purchase_order_fact_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(po_number || po_line_number)` | Purchase order line surrogate key. |
+| `po_date_key` | `INT64` | No | FK | Internal | ERP | Date Lookup | Purchase order date. |
+| `expected_delivery_date_key` | `INT64` | Yes | FK | Internal | ERP | Date Lookup | Expected arrival date. |
+| `supplier_sk` | `INT64` | No | FK | Internal | Vendor | Supplier Lookup | Supplier reference. |
+| `product_sk` | `INT64` | No | FK | Internal | SKU | Product Lookup | Purchased SKU. |
+| `warehouse_sk` | `INT64` | No | FK | Internal | Warehouse | Warehouse Lookup | Receiving warehouse. |
+| `po_number` | `STRING` | No | DD | Internal | ERP | Direct Mapping | Purchase Order Number. |
+| `po_line_number` | `INT64` | No | DD | Internal | ERP | Direct Mapping | Purchase order line. |
+| `ordered_quantity` | `INT64` | No | - | Internal | ERP | Direct Mapping | Quantity ordered. |
+| `received_quantity` | `INT64` | Yes | - | Internal | ERP | Direct Mapping | Quantity received. |
+| `unit_purchase_cost_amount` | `NUMERIC(10,2)` | No | - | Confidential | ERP | Direct Mapping | Unit purchase cost. |
 | `total_purchase_cost_amount` | `NUMERIC(12,2)` | No | - | Confidential | Calculated | Qty × Cost | Total purchase value. |
 | `lead_time_days` | `INT64` | Yes | - | Internal | Calculated | Date Difference | Procurement lead time. |
-| `purchase_price_variance_amount` | `NUMERIC(12,2)` | Yes | - | Restricted | Calculated | `(unit_purchase_cost_amount − dim_product.base_cost_sgd) × ordered_quantity` | Actual cost paid vs. the product's **current** standard cost (Type 1 dimension caveat — same as `fact_sales.cogs_amount`). |
 
 ---
 
-## 4.3 Inventory Daily Fact (`fact_inventory_daily`)
+## 4.3 Inventory Snapshot Fact (`fact_inventory_daily`)
 
 **Business Owner:** Director of Supply Chain  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Derived — see Transformation Logic  
+**Source System:** Warehouse Management System (WMS)  
 **Grain:** One record per SKU per warehouse per calendar day  
-**Refresh Frequency:** Batch (on generation/reload)
-
-> **This is a derived fact, not a direct source mirror.** `raw_inventory_snapshot` is a single point-in-time reading per (warehouse, product) — not a daily series. `quantity_on_hand` is reconstructed via a calibrated running total of the signed movement ledger (`raw_inventory_movements`), anchored to the one known snapshot value, then forward-filled across days with no movement. Full methodology and manual verification against ground truth in `docs/03_engineering/02_dbt_transformation_spec.md` §5 and §7.
+**Refresh Frequency:** Daily (01:00 UTC)
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `inventory_fact_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(warehouse_id \|\| product_id \|\| balance_date)` | Snapshot surrogate key. |
-| `snapshot_date_key` | `INT64` | No | FK | Internal | Calendar | Date Lookup | Balance date. |
-| `product_key` | `INT64` | No | FK | Internal | SKU | Lookup, `COALESCE(..., -1)` | Product reference. |
-| `warehouse_key` | `INT64` | No | FK | Internal | Warehouse | Lookup, `COALESCE(..., -1)` | Warehouse reference. |
-| `quantity_on_hand` | `INT64` | No | - | Confidential | **Derived** — see note above | Calibrated running ledger balance, forward-filled | End-of-day on-hand quantity. Small negative values on a handful of (warehouse, product) pairs are expected, accepted stockout noise — see `00_data_generation_assumptions.md`. |
-| `units_sold_qty` | `INT64` | No | - | Internal | `raw_inventory_movements` | Same-day sum of `CUSTOMER_SALE` movements | Units sold that day. |
-| `units_returned_qty` | `INT64` | No | - | Internal | `raw_inventory_movements` | Same-day sum of `CUSTOMER_RETURN` movements | Units returned that day. |
-| `units_received_qty` | `INT64` | No | - | Internal | `raw_inventory_movements` | Same-day sum of `INBOUND_PURCHASE` movements | Units received from suppliers that day. |
-
-> **`quantity_allocated`, `quantity_in_transit`, `unit_cost_amount`, and `inventory_valuation_amount` are deliberately NOT included.** An earlier version of this spec listed them, but they only exist in `raw_inventory_snapshot` as a single point-in-time reading, not a real daily-varying series — fabricating a daily trend for them would be actively misleading. Requires new raw source data (e.g. a real WMS feed) to add properly, not a derivation from what exists today.
+| `inventory_snapshot_key` | `INT64` | No | PK | Internal | N/A | Hash | Snapshot surrogate key. |
+| `snapshot_date_key` | `INT64` | No | FK | Internal | Calendar | Date Lookup | Snapshot date. |
+| `product_sk` | `INT64` | No | FK | Internal | SKU | Product Lookup | Product reference. |
+| `warehouse_sk` | `INT64` | No | FK | Internal | Warehouse | Warehouse Lookup | Warehouse reference. |
+| `quantity_on_hand` | `INT64` | No | - | Confidential | WMS | Direct Mapping | Physical inventory. |
+| `quantity_allocated` | `INT64` | No | - | Confidential | WMS | Direct Mapping | Reserved inventory. |
+| `quantity_in_transit` | `INT64` | No | - | Internal | WMS | Direct Mapping | Inventory currently moving. |
+| `unit_cost_amount` | `NUMERIC(10,2)` | No | - | Restricted | ERP | Product Cost Lookup | Standard unit cost. |
+| `inventory_valuation_amount` | `NUMERIC(12,2)` | No | - | Restricted | Calculated | Qty × Cost | Inventory value. |
 
 ---
 
-## 4.4 Returns Fact (`fact_returns`)
+## 4.4 Manufacturing Fact (`fact_manufacturing`)
 
-**Business Owner:** Director of Customer Experience  
+**Business Owner:** Manufacturing Operations Director  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Returns Processing (`refunded_amount`/`restocking_fee_amount` are derived — see below)  
-**Grain:** One record per returned order line item  
-**Refresh Frequency:** Batch (on generation/reload)
+**Source System:** Manufacturing Execution System (MES)  
+**Grain:** One record per manufacturing batch  
+**Refresh Frequency:** Hourly
 
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `return_fact_key` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(return_id)` | Return surrogate key. |
+| `manufacturing_batch_key` | `INT64` | No | PK | Internal | MES | Hash | Manufacturing batch surrogate key. |
+| `batch_initiated_date_key` | `INT64` | No | FK | Internal | MES | Date Lookup | Batch start date. |
+| `batch_completed_date_key` | `INT64` | Yes | FK | Internal | MES | Date Lookup | Batch completion date. |
+| `supplier_sk` | `INT64` | No | FK | Internal | Vendor | Supplier Lookup | Manufacturing partner. |
+| `product_sk` | `INT64` | No | FK | Internal | SKU | Product Lookup | Manufactured SKU. |
+| `batch_number` | `STRING` | No | DD | Internal | MES | Direct Mapping | Manufacturing batch number. |
+| `planned_units_quantity` | `INT64` | No | - | Internal | MES | Direct Mapping | Planned production. |
+| `produced_units_quantity` | `INT64` | No | - | Internal | MES | Direct Mapping | Completed units. |
+| `qa_passed_units_quantity` | `INT64` | No | - | Internal | QA | Direct Mapping | Passed inspection. |
+| `defect_units_quantity` | `INT64` | No | - | Internal | QA | Direct Mapping | Failed inspection. |
+| `total_batch_cost_amount` | `NUMERIC(12,2)` | No | - | Confidential | ERP | Direct Mapping | Total manufacturing cost. |
+| `unit_batch_cost_amount` | `NUMERIC(10,2)` | No | - | Restricted | Calculated | Total ÷ Produced | Cost per finished unit. |
+
+---
+
+## 4.5 Returns Fact (`fact_returns`)
+
+**Business Owner:** Director of Customer Experience  
+**Technical Steward:** Analytics Engineering  
+**Source System:** Shopify Returns / ERP  
+**Grain:** One record per returned order line item  
+**Refresh Frequency:** Near Real-Time
+
+| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `return_fact_key` | `INT64` | No | PK | Internal | Returns | Hash | Return surrogate key. |
 | `return_date_key` | `INT64` | No | FK | Internal | Returns | Date Lookup | Return transaction date. |
-| `original_order_date_key` | `INT64` | No | FK | Internal | Original Order | Date Lookup | Date of the order this return relates to. |
-| `customer_key` | `INT64` | No | FK | Restricted | Original Order | Lookup, `COALESCE(..., -1)` | Customer reference (via the original order — `raw_returns` doesn't carry `customer_id` directly). |
-| `product_key` | `INT64` | No | FK | Internal | SKU | Lookup, `COALESCE(..., -1)` | Returned product. |
-| `warehouse_key` | `INT64` | No | FK | Internal | Warehouse | Lookup, `COALESCE(..., -1)` | Receiving warehouse. |
-| `return_authorization_number` | `STRING` | No | DD | Internal | Returns | Direct Mapping | Business return identifier. |
-| `disposition_code` | `STRING` | No | DD | Internal | Returns | Direct Mapping | Restock, Refurbish, Liquidate, or Dispose. |
-| `return_reason_code` | `STRING` | No | DD | Internal | Returns | Direct Mapping | Customer-stated return reason. |
+| `customer_sk` | `INT64` | No | FK | Restricted | Customer | Lookup | Customer reference. |
+| `product_sk` | `INT64` | No | FK | Internal | SKU | Lookup | Returned product. |
+| `store_sk` | `INT64` | No | FK | Internal | Store | Lookup | Return location. |
+| `warehouse_sk` | `INT64` | No | FK | Internal | Warehouse | Lookup | Receiving warehouse. |
 | `returned_quantity` | `INT64` | No | - | Internal | Returns | Direct Mapping | Quantity returned. |
-| `refunded_amount` | `NUMERIC(12,2)` | No | - | Confidential | **Derived, not a raw column** | `returned_quantity × (original order item's net_sales / quantity)` | Refund value, prorated from the original line item's actual net unit price. `raw_returns` has no refund-amount column — confirmed absent via `INFORMATION_SCHEMA.COLUMNS`. |
-| `restocking_fee_amount` | `NUMERIC(12,2)` | No | - | Confidential | **Derived, not a raw column** | `10% of refunded_amount, only when return_reason_code = 'Customer Remorse'` | Applied restocking fee, per the business rule in `00_data_generation_assumptions.md`. Not a raw source column. |
+| `refunded_amount` | `NUMERIC(12,2)` | No | - | Confidential | Finance | Direct Mapping | Refund value. |
+| `restocking_fee_amount` | `NUMERIC(12,2)` | Yes | - | Confidential | ERP | Direct Mapping | Applied restocking fee. |
+
+---
+
+## 4.6 AR Aging Fact (`fact_ar_aging_daily`) *— Added v1.2*
+
+**Business Owner:** Finance Manager  
+**Technical Steward:** Analytics Engineering  
+**Source System:** NetSuite ERP (AR Module)  
+**Grain:** One record per open customer invoice per calendar day  
+**Refresh Frequency:** Daily
+
+Closes the DSO data gap identified in KPI Framework reconciliation (`06_kpi_schema_reconciliation.md`, Section 2).
+
+| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `ar_snapshot_key` | `INT64` | No | PK | Internal | N/A | Hash | AR snapshot surrogate key. |
+| `snapshot_date_key` | `INT64` | No | FK | Internal | Calendar | Date Lookup | Snapshot date. |
+| `customer_sk` | `INT64` | No | FK | Restricted | Customer | Lookup | Customer/account reference. |
+| `invoice_number` | `STRING` | No | DD | Confidential | NetSuite | Direct Mapping | Invoice identifier. |
+| `payment_terms_code` | `STRING` | Yes | DD | Internal | NetSuite | Direct Mapping | Credit terms agreed with customer. |
+| `invoice_amount` | `NUMERIC(12,2)` | No | - | Confidential | NetSuite | Direct Mapping | Original invoice value. |
+| `open_balance_amount` | `NUMERIC(12,2)` | No | - | Confidential | NetSuite | Direct Mapping | Outstanding balance at snapshot date. |
+| `days_outstanding` | `INT64` | Yes | - | Internal | Calculated | Date Difference | Invoice age at snapshot date. |
+| `aging_bucket_0_30_amount` | `NUMERIC(12,2)` | Yes | - | Confidential | Calculated | Bucket Assignment | Open balance aged 0-30 days. |
+| `aging_bucket_31_60_amount` | `NUMERIC(12,2)` | Yes | - | Confidential | Calculated | Bucket Assignment | Open balance aged 31-60 days. |
+| `aging_bucket_61_90_amount` | `NUMERIC(12,2)` | Yes | - | Confidential | Calculated | Bucket Assignment | Open balance aged 61-90 days. |
+| `aging_bucket_90_plus_amount` | `NUMERIC(12,2)` | Yes | - | Confidential | Calculated | Bucket Assignment | Open balance aged 90+ days. |
+
+---
+
+## 4.7 Marketing Spend Fact (`fact_marketing_spend`) *— Added v1.2*
+
+**Business Owner:** Marketing Director  
+**Technical Steward:** Analytics Engineering  
+**Source System:** Meta Ads API / Google Ads API / TikTok Ads API  
+**Grain:** One record per campaign per marketing platform per calendar day  
+**Refresh Frequency:** Daily
+
+Closes the CAC data gap identified in KPI Framework reconciliation (`06_kpi_schema_reconciliation.md`, Section 3). New customer counts for CAC are resolved via `dim_customer.acquisition_campaign_sk`, not from this fact directly.
+
+| Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `marketing_spend_key` | `INT64` | No | PK | Internal | N/A | Hash | Marketing spend surrogate key. |
+| `spend_date_key` | `INT64` | No | FK | Internal | Calendar | Date Lookup | Spend date. |
+| `campaign_sk` | `INT64` | No | FK | Internal | Campaign | Lookup | Campaign reference. |
+| `spend_amount` | `NUMERIC(12,2)` | No | - | Confidential | Ad Platform | Direct Mapping | Daily ad spend. |
+| `impressions_count` | `INT64` | Yes | - | Internal | Ad Platform | Direct Mapping | Ad impressions served. |
+| `clicks_count` | `INT64` | Yes | - | Internal | Ad Platform | Direct Mapping | Ad clicks recorded. |
+| `platform_reported_conversions_count` | `INT64` | Yes | - | Internal | Ad Platform | Direct Mapping | Platform's own conversion count; reconciliation reference only, not the CAC source of truth. |
 
 ---
 
@@ -357,70 +473,83 @@ The following KPIs are standardized enterprise metrics used across executive das
 
 | Metric Name | Formula / SQL Logic | Business Owner | Aggregation Type | Standard Grain | Refresh SLA |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Gross Revenue** | `SUM(gross_revenue_amount)` | Finance | Fully Additive | Order Line | Batch |
-| **Net Revenue** | `SUM(net_revenue_amount)` | Finance | Fully Additive | Order Line | Batch |
-| **Average Order Value (AOV)** | `SUM(net_revenue_amount) / COUNT(DISTINCT order_number)` | E-Commerce | Non-Additive | Daily / Channel | Batch |
-| **Gross Profit Margin %** | `(SUM(net_revenue_amount) - SUM(cogs_amount)) / SUM(net_revenue_amount)` | Finance | Non-Additive | SKU / Month | Batch |
-| **Inventory Sell-Through Rate** | `SUM(quantity_ordered) / (SUM(quantity_ordered) + AVG(quantity_on_hand))` | Merchandise | Semi-Additive | SKU / Month | Batch |
-| **Customer Retention Rate (90d)** | `COUNT(DISTINCT active_repeat_cust) / COUNT(DISTINCT cohort_cust)` | Growth / CRM | Non-Additive | Monthly Cohort | Batch |
-
-> **Not yet built as dbt models.** These are target KPI definitions for the Looker Studio phase — none currently exist as materialized dbt marts or Looker Studio calculated fields. Listed here to establish the standard formula ahead of dashboard build, per `docs/01_business/05_enterprise_kpi_framework.md`.
+| **Gross Revenue** | `SUM(gross_revenue_usd)` | Finance | Fully Additive | Order Line | Near Real-Time |
+| **Net Revenue** | `SUM(net_revenue_usd)` | Finance | Fully Additive | Order Line | Near Real-Time |
+| **Average Order Value (AOV)** | `SUM(net_revenue_usd) / COUNT(DISTINCT order_id)` | E-Commerce | Non-Additive | Daily / Channel | Daily |
+| **Gross Profit Margin %** | `(SUM(net_revenue_usd) - SUM(quantity_ordered * cogs_usd)) / SUM(net_revenue_usd)` | Finance | Non-Additive | SKU / Season | Daily |
+| **Inventory Sell-Through Rate** | `SUM(quantity_ordered) / (SUM(quantity_ordered) + AVG(quantity_on_hand))` | Merchandise | Semi-Additive | SKU / Month | Weekly |
+| **Customer Retention Rate (90d)** | `COUNT(DISTINCT active_repeat_cust) / COUNT(DISTINCT cohort_cust)` | Growth / CRM | Non-Additive | Monthly Cohort | Weekly |
+| **Days Sales Outstanding (DSO)** *(v1.2)* | `AVG(open_balance_amount) / (SUM(net_revenue_amount WHERE payment_terms_code != 'DUE_ON_RECEIPT') / 30)` | Finance | Non-Additive | Monthly | Monthly |
+| **Customer Acquisition Cost (CAC)** *(v1.2)* | `SUM(spend_amount) / COUNT(DISTINCT customer_sk WHERE acquisition_campaign_sk = campaign_sk)` | Marketing | Non-Additive | Daily / Campaign | Daily |
 
 ---
 
 # 6. Enterprise Data Quality Rules & Assertions ⭐
 
-The Vespera data platform enforces automated data quality validation using **dbt's built-in generic tests** (`unique`, `not_null`, `accepted_values`, `relationships`). `dbt-expectations` is **not** currently a project dependency — the rules below marked ❌ are not yet implemented. Full inventory of what's actually implemented, including a real case study of what these tests did and didn't catch, is in `docs/03_engineering/03_data_quality_framework.md`.
+The Vespera data platform enforces automated data quality validation during every dbt production deployment. These tests are implemented using **dbt tests** and **dbt-expectations** to ensure trustworthy analytical outputs.
 
 ## Entity Integrity
 
-1. **Surrogate Key Uniqueness** ✅ Implemented
-   Primary keys across `dim_customer`, `dim_product`, `dim_supplier`, and `dim_warehouse` must be unique (`COUNT(sk) = COUNT(DISTINCT sk)`).
+1. **Surrogate Key Uniqueness**  
+   Primary keys across `dim_customer`, `dim_product`, and `dim_store` must be unique (`COUNT(sk) = COUNT(DISTINCT sk)`).
 
-2. **Natural Key Uniqueness** ✅ Implemented
-   Active business keys (`customer_id`, `product_id`, `sku_code`, `warehouse_id`, `supplier_id`) must never contain duplicates.
+2. **Natural Key Uniqueness**  
+   Active business keys (`customer_id`, `sku`, `store_code`) must never contain duplicates.
 
-3. **Single Active SCD Record** — N/A
-   No SCD Type 2 dimensions currently exist (all dimensions are Type 1 — see `03_star_schema.md` §4), so there's no "active version" concept to test yet.
+3. **Single Active SCD Record**  
+   Each `customer_id` and `sku` may have only one active (`is_active = TRUE`) record.
 
 ---
 
 ## Referential Integrity
 
-4. **Fact-to-Dimension Relationships** ✅ Implemented
+4. **Fact-to-Dimension Relationships**  
    Every foreign key in every fact table must resolve to an existing dimension record.
 
-5. **Unknown Member Handling** ✅ Implemented
-   Missing dimension references default to surrogate key `-1` via `COALESCE()` in every fact-building model, instead of creating orphan records or dropping rows.
+5. **Unknown Member Handling**  
+   Missing dimension references must default to surrogate key `-1` instead of creating orphan records.
 
 ---
 
 ## Financial Validation
 
-6. **Non-Negative Financial Values** ❌ Not implemented as a dbt test
-   Revenue, cost, tax, and discount fields should be ≥ 0.
+6. **Non-Negative Financial Values**  
+   Revenue, cost, tax, and discount fields must always be greater than or equal to zero.
 
-7. **Discount Validation** ❌ Not implemented as a dbt test
-   `discount_amount <= gross_revenue_amount`
+7. **Discount Validation**  
+   `discount_amount_usd <= gross_revenue_usd`
 
-8. **Net Revenue Validation** ❌ Not implemented as a dbt test
-   `gross_revenue_amount − discount_amount = net_revenue_amount`
+8. **Net Revenue Validation**
+
+```
+gross_revenue_usd
+− discount_amount_usd
+= net_revenue_usd
+```
 
 ---
 
 ## Inventory Validation
 
-9. **Inventory Cannot Be Negative** ❌ Not implemented as a blanket test
-   `quantity_on_hand >= 0`, **except** `fact_inventory_daily` contains a small number of genuine negative balances by design (documented, accepted stockout noise — see `00_data_generation_assumptions.md`). This rule needs a real exception clause before it can be safely enabled, not just a blanket assertion.
+9. **Inventory Cannot Be Negative**  
+   `quantity_on_hand >= 0` unless flagged as an approved inventory adjustment.
 
-10. **Purchase Order Validation** ❌ Not implemented as a dbt test
-    `received_quantity <= ordered_quantity`
+10. **Purchase Order Validation**
+
+```
+received_quantity <= ordered_quantity
+```
 
 ---
 
 ## Timestamp Validation
 
-11. **No Future Dates** ❌ Not implemented — and not very meaningful for a static historical simulation with a fixed 2024-2025 date range, versus a live incrementally-loading pipeline.
+11. **No Future Dates**
+
+```
+created_at_utc <= CURRENT_TIMESTAMP()
+transaction_timestamp <= CURRENT_TIMESTAMP()
+```
 
 ---
 
@@ -428,39 +557,51 @@ The Vespera data platform enforces automated data quality validation using **dbt
 
 | Business Term | Definition |
 | :--- | :--- |
-| **Order** | A commercial transaction between a customer and Vespera. |
-| **SKU (Stock Keeping Unit)** | Lowest sellable inventory unit — one unique product. |
-| **Inventory Snapshot** | The single point-in-time inventory reading captured in `raw_inventory_snapshot`, distinct from `fact_inventory_daily`'s derived daily series. |
-| **Net Revenue** | Gross Revenue minus discounts (excluding taxes). |
+| **Order** | A legally binding commercial transaction between a customer and Vespera Lifestyle. |
+| **SKU (Stock Keeping Unit)** | Lowest sellable inventory unit representing a unique combination of style, color, and size. |
+| **Inventory Snapshot** | Daily point-in-time inventory balance captured for analytical reporting. |
+| **Net Revenue** | Gross Revenue minus promotional discounts (excluding taxes). |
 | **Gross Margin** | Net Revenue minus Cost of Goods Sold (COGS). |
 | **Conformed Dimension** | A shared dimension reused across multiple fact tables to ensure enterprise-wide reporting consistency. |
-| **SCD Type 1** | Slowly Changing Dimension methodology that overwrites attribute changes in place, keeping no history. Currently used for all five dimensions in this warehouse. |
-| **SCD Type 2** | Slowly Changing Dimension methodology that preserves historical attribute changes through versioned records. Not yet used anywhere in this warehouse — see `03_star_schema.md` §4. |
-| **Demand Tier** | Low/Medium/High/Very High bucket assigned by percentile rank of a product's `popularity_weight`, used to scale purchase order quantity and reorder cadence. |
+| **SCD Type 2** | Slowly Changing Dimension methodology that preserves historical attribute changes through versioned records. |
 
 ---
 
 # 8. Enterprise Data Lineage ⭐
 
-The following diagram illustrates the actual end-to-end data flow, from the Python simulation engine through ingestion, transformation, warehousing, and (planned) business intelligence.
+The following diagram illustrates the end-to-end data flow from operational systems through ingestion, transformation, warehousing, and business intelligence.
 
 ```mermaid
 flowchart LR
 
-PY[Python Simulation Engine]
+A[Shopify E-Commerce & POS]
+B[NetSuite ERP / WMS]
+C[Klaviyo CRM]
 
-PY --> RAW[(vespera_dw_raw)]
+D[Raw Landing Dataset]
 
-RAW --> STG[dbt Staging — vespera_dw_staging]
-STG --> INT[dbt Intermediate — vespera_dw_intermediate]
-STG --> DIM[Dimension Tables]
-STG --> FACT[Fact Tables]
-INT --> FACT
+E[dbt Staging Models]
+F[dbt Intermediate Models]
+G[Enterprise Dimensions]
+H[Enterprise Facts]
 
-DIM --> DW[(vespera_dw)]
-FACT --> DW
+I[BigQuery Enterprise Warehouse]
 
-DW --> LOOKER[Looker Studio Dashboards — Planned]
+J[Looker Studio Executive Dashboards]
+
+A --> D
+B --> D
+C --> D
+
+D --> E
+E --> F
+F --> G
+F --> H
+
+G --> I
+H --> I
+
+I --> J
 ```
 
 ---
@@ -471,24 +612,22 @@ The following documents collectively define the complete enterprise analytics ar
 
 | Artifact | Status | Repository Path |
 | :--- | :---: | :--- |
-| ✅ **01 Enterprise Data Model** | Complete | `docs/02_architecture/01_enterprise_data_model.md` |
-| ✅ **02 Logical Data Model** | Complete | `docs/02_architecture/02_logical_data_model.md` |
-| ✅ **03 Star Schema Specification** | Complete | `docs/02_architecture/03_star_schema.md` |
-| ✅ **04 Physical ERD & DDL** | Complete | `docs/02_architecture/04_physical_erd.md` |
-| ✅ **05 Enterprise Data Dictionary & Metadata Repository** | Complete | `docs/02_architecture/05_data_dictionary.md` |
-| ✅ **ETL Design** | Complete (Extract/Load/Transform) | `docs/03_engineering/01_etl_design.md` |
-| ✅ **dbt Transformation Spec** | Complete | `docs/03_engineering/02_dbt_transformation_spec.md` |
-| ✅ **Data Quality Framework** | Complete | `docs/03_engineering/03_data_quality_framework.md` |
-| ⏳ **Looker Studio Dashboards** | Next | — |
+| ✅ **01 Enterprise Data Model** | Complete | `docs/01_enterprise_data_model.md` |
+| ✅ **02 Logical Data Model** | Complete | `docs/02_logical_data_model.md` |
+| ✅ **03 Star Schema Specification** | Complete | `docs/03_star_schema.md` |
+| ✅ **04 Physical ERD & DDL** | Complete | `docs/04_physical_erd.md` |
+| ✅ **05 Enterprise Data Dictionary & Metadata Repository** | Complete | `docs/05_data_dictionary.md` |
 
 ---
 
-# Architecture & Engineering: Complete ✅
+# Sprint 2 Complete ✅
 
-The Vespera Analytics Platform now includes a fully specified, fully implemented, and fully tested data platform from raw generation through the dimensional mart layer:
+The Vespera Analytics Platform now includes:
 
-- Enterprise Data Model, Logical Data Model, Star Schema, Physical ERD, and this Metadata Repository — all reconciled against the actual implementation
-- 13 raw tables, 13 dbt staging models, 3 intermediate models, 5 dimensions, and 4 fact tables — all built and passing 91 dbt tests
-- A documented, real data-quality case study (`03_engineering/01_etl_design.md` §7 and `03_engineering/03_data_quality_framework.md` §6)
+- Enterprise Data Model
+- Logical Data Model
+- Star Schema Specification
+- Physical ERD & DDL
+- Enterprise Data Dictionary & Metadata Repository
 
-Looker Studio dashboard design is the next and final phase.
+Together, these documents establish a complete enterprise-grade analytics architecture suitable for implementation using Google BigQuery, dbt, and Looker Studio.
