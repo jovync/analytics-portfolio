@@ -227,14 +227,6 @@ def generate_products(
             ]
         )
 
-        reorder_quantity = random.choice(
-            [
-                250,
-                500,
-                1000,
-            ]
-        )
-
         lead_time_days = random.randint(
             10,
             35,
@@ -290,9 +282,6 @@ def generate_products(
                 "reorder_point":
                     reorder_point,
 
-                "reorder_quantity":
-                    reorder_quantity,
-
                 "lead_time_days":
                     lead_time_days,
 
@@ -304,6 +293,36 @@ def generate_products(
         pd.DataFrame(products)
         .sort_values("product_id")
         .reset_index(drop=True)
+    )
+
+    # ----------------------------------------------------------
+    # Demand-scaled reorder quantity
+    # ----------------------------------------------------------
+    # Computed once, vectorized, over the whole catalog now that
+    # popularity_weight exists for every product — reorder_quantity
+    # used to be an independent random.choice([250, 500, 1000]) with
+    # zero connection to actual demand, which let purchase_orders.py
+    # multiply an arbitrary base by the demand-tier multiplier and
+    # produce PO quantities wildly disconnected from real sell-through.
+    # Uses percentile rank rather than raw popularity_weight for the
+    # same reason utils.assign_demand_tiers does — popularity_weight
+    # is Pareto-distributed and not comparable across products on a
+    # linear scale.
+
+    percentile_rank = products_df["popularity_weight"].rank(pct=True)
+
+    reorder_quantity_min = 150
+    reorder_quantity_max = 1200
+
+    scaled_quantity = (
+        reorder_quantity_min
+        + percentile_rank * (reorder_quantity_max - reorder_quantity_min)
+    )
+
+    jitter = np.random.uniform(0.85, 1.15, size=len(scaled_quantity))
+
+    products_df["reorder_quantity"] = (
+        (scaled_quantity * jitter).round().astype(int)
     )
 
     return products_df

@@ -1,0 +1,30 @@
+[0m12:32:07.051395 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000204A80AD7F0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000204AA84FED0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000204AA84F890>]}
+
+
+============================== 12:32:07.055154 | aaa7b9b6-4ff5-461c-a1f3-625ca8b2c88f ==============================
+[0m12:32:07.055154 [info ] [MainThread]: Running with dbt=1.12.0
+[0m12:32:07.055699 [debug] [MainThread]: running dbt with arguments {'static_parser': 'True', 'no_print': 'None', 'maximum_seed_size_mib': '1', 'target_path': 'None', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'version_check': 'True', 'printer_width': '80', 'write_json': 'True', 'introspect': 'True', 'log_cache_events': 'False', 'empty': 'None', 'cache_selected_only': 'False', 'log_format': 'default', 'debug': 'False', 'fail_fast': 'False', 'partial_parse': 'True', 'send_anonymous_usage_stats': 'True', 'quiet': 'False', 'warn_error': 'None', 'profiles_dir': 'C:\\Users\\Jovy Carreon\\.dbt', 'invocation_command': 'dbt test --select staging', 'hints_enabled': 'True', 'use_colors': 'True', 'use_experimental_parser': 'False', 'indirect_selection': 'eager', 'log_path': 'logs'}
+[0m12:32:07.057796 [error] [MainThread]: [[31mERROR[0m]: Encountered an error:
+Runtime Error
+  No dbt_project.yml found at expected path C:\Projects\analytics-portfolio\vespera-analytics-platform\dbt_project.yml
+  Verify that each entry within packages.yml (and their transitive dependencies) contains a file named dbt_project.yml
+  
+[0m12:32:07.058459 [debug] [MainThread]: Command `dbt test` failed at 12:32:07.058367 after 0.14 seconds
+[0m12:32:07.058693 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000204AA8F42B0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000204AA81A0F0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000204AA8F86B0>]}
+[0m12:32:07.058931 [debug] [MainThread]: Flushing usage events
+[0m12:32:08.399388 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m12:56:20.176788 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000001D572A4D7F0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000001D5751EBED0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000001D5751EB890>]}
+
+
+============================== 12:56:20.180535 | 80a0d17c-7885-4231-acb4-82d0b9c40abf ==============================
+[0m12:56:20.180535 [info ] [MainThread]: Running with dbt=1.12.0
+[0m12:56:20.181247 [debug] [MainThread]: running dbt with arguments {'version_check': 'True', 'no_print': 'None', 'maximum_seed_size_mib': '1', 'target_path': 'None', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'static_parser': 'True', 'printer_width': '80', 'write_json': 'True', 'empty': 'False', 'log_cache_events': 'False', 'introspect': 'True', 'cache_selected_only': 'False', 'fail_fast': 'False', 'debug': 'False', 'log_format': 'default', 'profiles_dir': 'C:\\Users\\Jovy Carreon\\.dbt', 'send_anonymous_usage_stats': 'True', 'quiet': 'False', 'warn_error': 'None', 'partial_parse': 'True', 'use_colors': 'True', 'hints_enabled': 'True', 'indirect_selection': 'eager', 'use_experimental_parser': 'False', 'invocation_command': 'dbt run --select marts.core', 'log_path': 'logs'}
+[0m12:56:20.181746 [error] [MainThread]: [[31mERROR[0m]: Encountered an error:
+Runtime Error
+  No dbt_project.yml found at expected path C:\Projects\analytics-portfolio\vespera-analytics-platform\dbt_project.yml
+  Verify that each entry within packages.yml (and their transitive dependencies) contains a file named dbt_project.yml
+  
+[0m12:56:20.182872 [debug] [MainThread]: Command `dbt run` failed at 12:56:20.182776 after 0.16 seconds
+[0m12:56:20.183110 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000001D5752902B0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000001D5751B60F0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000001D5752946B0>]}
+[0m12:56:20.183339 [debug] [MainThread]: Flushing usage events
+[0m12:56:21.588017 [debug] [MainThread]: An error was encountered while trying to flush usage events

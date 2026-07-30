@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: int_inventory_movement_running_totals
+    description: >
+      One row per movement event with a running cumulative
+      signed-quantity total per (warehouse, product). A running total
+      of CHANGES, not a calibrated balance — see
+      int_inventory_balance_offset for that step.
+    columns:
+      - name: movement_id
+        tests: [unique, not_null]
+
+  - name: int_inventory_balance_offset
+    description: >
+      One row per (warehouse, product) in raw_inventory_snapshot.
+      Calibration offset anchoring the movement ledger's running total
+      to the one real point-in-time balance available.
+    columns:
+      - name: warehouse_id
+        tests: [not_null]
+      - name: product_id
+        tests: [not_null]
+
+  - name: int_inventory_daily_spine
+    description: >
+      Daily calendar grid per (warehouse, product), bounded to each
+      product's active/assigned window intersected with the
+      simulation period. Feeds fact_inventory_daily.

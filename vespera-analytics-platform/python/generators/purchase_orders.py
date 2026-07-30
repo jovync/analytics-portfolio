@@ -263,15 +263,18 @@ def generate_purchase_orders(
                 # ----------------------------------------------------------
 
                 if warehouse_type == "Distribution Center":
+                    # reorder_quantity is now already demand-scaled
+                    # (see products.py) — applying quantity_multiplier
+                    # on top would double-count demand tier.
                     base_quantity = reorder_quantity
+                    quantity_ordered = base_quantity
                 else:
                     base_quantity = random.randint(
                         *STORE_ORDER_QUANTITY_RANGE
                     )
-
-                quantity_ordered = int(
-                    round(base_quantity * quantity_multiplier)
-                )
+                    quantity_ordered = int(
+                        round(base_quantity * quantity_multiplier)
+                    )
 
                 unit_cost = round(
                     base_cost * random.uniform(*UNIT_COST_VARIANCE),

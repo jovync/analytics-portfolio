@@ -1,0 +1,40 @@
+# --------------------------------------------------------------------------
+# DO NOT COMMIT THIS FILE TO THE REPO.
+#
+# dbt profiles are machine-local by convention — they can contain
+# credentials, and even without secrets (oauth method below has none)
+# they're still environment-specific. Save this as:
+#
+#   ~/.dbt/profiles.yml        (macOS/Linux)
+#   %USERPROFILE%\.dbt\profiles.yml   (Windows)
+#
+# NOT inside the vespera-analytics-platform repo.
+# --------------------------------------------------------------------------
+
+vespera:
+  target: dev
+  outputs:
+
+    dev:
+      type: bigquery
+      method: oauth              # uses your `gcloud auth application-default login` session
+      project: vespera-analytics-platform
+      dataset: vespera_dw        # target dataset for marts; staging -> vespera_dw_staging
+      location: asia-southeast1  # matches vespera_dw_raw's region
+      threads: 4
+      job_execution_timeout_seconds: 300
+      job_retries: 1
+
+    # --------------------------------------------------------------------
+    # Alternative: service-account key auth, if you'd rather not use
+    # gcloud oauth (e.g. running in CI later). Uncomment and point
+    # keyfile at a path OUTSIDE the repo — never commit a key file.
+    # --------------------------------------------------------------------
+    # prod:
+    #   type: bigquery
+    #   method: service-account
+    #   project: vespera-analytics-platform
+    #   dataset: vespera_dw
+    #   location: asia-southeast1
+    #   keyfile: /absolute/path/outside/repo/vespera-sa-key.json
+    #   threads: 4

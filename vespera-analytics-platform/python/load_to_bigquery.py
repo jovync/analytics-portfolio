@@ -81,6 +81,29 @@ def ensure_dataset_exists(client: bigquery.Client) -> None:
             f"Created dataset {dataset_ref} in {DATASET_LOCATION}."
         )
 
+# Tables where every column is STRING-typed — BigQuery's schema
+# autodetect can fail to tell the header row apart from data when
+# there's no numeric/date column to create type contrast, silently
+# loading with placeholder names like string_field_0 instead of the
+# real header names. Give these two an explicit schema instead of
+# relying on autodetect (skip_leading_rows alone doesn't fix this —
+# it's a separate autodetect naming step, not a row-skipping issue).
+EXPLICIT_SCHEMAS = {
+    "raw_warehouses": [
+        bigquery.SchemaField("warehouse_id", "STRING"),
+        bigquery.SchemaField("warehouse_code", "STRING"),
+        bigquery.SchemaField("warehouse_name", "STRING"),
+        bigquery.SchemaField("warehouse_type", "STRING"),
+        bigquery.SchemaField("country", "STRING"),
+        bigquery.SchemaField("city", "STRING"),
+        bigquery.SchemaField("region", "STRING"),
+        bigquery.SchemaField("serves_countries", "STRING"),
+    ],
+    "raw_warehouse_product_assignment": [
+        bigquery.SchemaField("warehouse_id", "STRING"),
+        bigquery.SchemaField("product_id", "STRING"),
+    ],
+}
 
 def load_csv_to_table(
     client: bigquery.Client,
@@ -98,12 +121,23 @@ def load_csv_to_table(
 
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{table_name}"
 
-    job_config = bigquery.LoadJobConfig(
-        source_format=bigquery.SourceFormat.CSV,
-        skip_leading_rows=1,
-        autodetect=True,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-    )
+    explicit_schema = EXPLICIT_SCHEMAS.get(table_name)
+
+    if explicit_schema:
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.CSV,
+            autodetect=False,
+            schema=explicit_schema,
+            skip_leading_rows=1,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        )
+    else:
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.CSV,
+            autodetect=True,
+            skip_leading_rows=1,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        )
 
     with open(csv_path, "rb") as csv_file:
 
