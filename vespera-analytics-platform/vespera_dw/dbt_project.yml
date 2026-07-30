@@ -1,0 +1,46 @@
+name: 'vespera_dw'
+version: '1.0.0'
+config-version: 2
+
+profile: 'vespera'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# --------------------------------------------------------------------------
+# Dataset layout
+# --------------------------------------------------------------------------
+# Raw tables already live in vespera_dw_raw (loaded via load_to_bigquery.py
+# — not managed by dbt).
+#
+# The `dataset:` set in profiles.yml is the default target dataset
+# (vespera_dw), used for marts. Staging models get `+schema: staging`
+# below, which dbt-bigquery appends to the target dataset by default
+# -> vespera_dw_staging. See dbt_project.yml comment in each layer's
+# folder for details, and the dbt README for the full rationale.
+# --------------------------------------------------------------------------
+
+models:
+  vespera_dw:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      # Sub-folders (marts/core, marts/finance, etc.) added as the
+      # mart layer is built out in the next phase.
+
+vars:
+  # Used by staging models needing a stable "today" reference in tests
+  # or incremental logic later; not consumed yet, placeholder for the
+  # data quality framework doc.
+  vespera_raw_dataset: vespera_dw_raw

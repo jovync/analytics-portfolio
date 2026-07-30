@@ -1,0 +1,90 @@
+version: 2
+
+sources:
+  - name: vespera_raw
+    database: vespera-analytics-platform
+    schema: vespera_dw_raw
+    description: >
+      Raw landing tables loaded via python/load_to_bigquery.py
+      (WRITE_TRUNCATE, schema autodetect). Not managed by dbt —
+      treat as an external source. Row counts and column shapes
+      documented in docs/03_engineering/00_data_generation_assumptions.md.
+
+    tables:
+      - name: raw_suppliers
+        description: Supplier master. 30 rows.
+        columns:
+          - name: supplier_id
+            tests: [unique, not_null]
+
+      - name: raw_products
+        description: Product/SKU master. 1,200 rows.
+        columns:
+          - name: product_id
+            tests: [unique, not_null]
+          - name: sku
+            tests: [unique, not_null]
+
+      - name: raw_customers
+        description: Customer master. 10,000 rows.
+        columns:
+          - name: customer_id
+            tests: [unique, not_null]
+
+      - name: raw_warehouses
+        description: >
+          Single conformed location table — Distribution Centers,
+          Retail Stores, and the Returns Center. 7 rows.
+        columns:
+          - name: warehouse_id
+            tests: [unique, not_null]
+
+      - name: raw_warehouse_product_assignment
+        description: >
+          (warehouse_id, product_id) pairs actually stocked. Shared
+          source of truth consumed by inventory_snapshot,
+          purchase_orders, and order_items. 4,756 rows.
+
+      - name: raw_inventory_snapshot
+        description: Point-in-time on-hand inventory by warehouse/product. 4,016 rows.
+        columns:
+          - name: inventory_snapshot_id
+            tests: [unique, not_null]
+
+      - name: raw_purchase_orders
+        description: Supplier-to-warehouse replenishment orders. 142,057 rows.
+        columns:
+          - name: purchase_order_id
+            tests: [unique, not_null]
+
+      - name: raw_orders
+        description: Order headers. 50,000 rows.
+        columns:
+          - name: order_id
+            tests: [unique, not_null]
+
+      - name: raw_order_items
+        description: Order line items. 94,127 rows.
+        columns:
+          - name: order_item_id
+            tests: [unique, not_null]
+
+      - name: raw_shipments
+        description: One shipment per fulfilled order. 40,057 rows.
+        columns:
+          - name: shipment_id
+            tests: [unique, not_null]
+
+      - name: raw_returns
+        description: Post-purchase returns. 3,611 rows.
+        columns:
+          - name: return_id
+            tests: [unique, not_null]
+
+      - name: raw_inventory_movements
+        description: >
+          Signed-quantity inventory ledger (Customer Sale, Customer
+          Return, Inbound Purchase). 192,199 rows.
+
+      - name: raw_marketing_spend
+        description: Daily spend by campaign, 4 paid channels only. 678 rows.

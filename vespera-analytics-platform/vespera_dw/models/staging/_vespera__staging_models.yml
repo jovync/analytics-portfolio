@@ -1,0 +1,105 @@
+version: 2
+
+models:
+  - name: stg_suppliers
+    description: One row per supplier, lightly cleaned from raw_suppliers.
+    columns:
+      - name: supplier_id
+        tests: [unique, not_null]
+
+  - name: stg_products
+    description: One row per SKU, lightly cleaned from raw_products.
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: sku_code
+        tests: [unique, not_null]
+
+  - name: stg_customers
+    description: One row per customer, lightly cleaned from raw_customers.
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+
+  - name: stg_warehouses
+    description: >
+      One row per warehouse — Distribution Center, Retail Store, or
+      Returns Center. Single conformed location table; there is no
+      separate store staging model (see docs/02_architecture/03_star_schema.md v1.2).
+    columns:
+      - name: warehouse_id
+        tests: [unique, not_null]
+      - name: warehouse_type
+        tests:
+          - accepted_values:
+              values: ['Distribution Center', 'Retail Store', 'Returns Center']
+
+  - name: stg_warehouse_product_assignment
+    description: (warehouse_id, product_id) pairs actually stocked.
+    columns:
+      - name: warehouse_id
+        tests:
+          - relationships:
+              to: ref('stg_warehouses')
+              field: warehouse_id
+      - name: product_id
+        tests:
+          - relationships:
+              to: ref('stg_products')
+              field: product_id
+
+  - name: stg_inventory_snapshot
+    description: Point-in-time on-hand inventory by warehouse/product.
+    columns:
+      - name: inventory_snapshot_id
+        tests: [unique, not_null]
+
+  - name: stg_purchase_orders
+    description: Supplier-to-warehouse replenishment orders.
+    columns:
+      - name: purchase_order_id
+        tests: [unique, not_null]
+      - name: po_status
+        tests:
+          - accepted_values:
+              values: ['Received', 'In Transit']
+              # Confirmed against raw_purchase_orders on 2026-07-30:
+              # 136,684 Received / 5,373 In Transit. No other statuses exist.
+              config:
+                severity: warn
+
+  - name: stg_orders
+    description: One row per order header.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: sales_channel
+        tests:
+          - accepted_values:
+              values: ['Shopify', 'Shopee', 'Lazada', 'Retail']
+
+  - name: stg_order_items
+    description: One row per order line item.
+    columns:
+      - name: order_item_id
+        tests: [unique, not_null]
+      - name: order_id
+        tests:
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+
+  - name: stg_shipments
+    description: One shipment per fulfilled order.
+
+  - name: stg_returns
+    description: Post-purchase returns.
+    columns:
+      - name: return_id
+        tests: [unique, not_null]
+
+  - name: stg_inventory_movements
+    description: Signed-quantity inventory ledger.
+
+  - name: stg_marketing_spend
+    description: Daily ad spend by campaign (paid channels only).
