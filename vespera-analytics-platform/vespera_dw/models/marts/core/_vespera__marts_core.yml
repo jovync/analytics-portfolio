@@ -1,0 +1,135 @@
+version: 2
+
+models:
+  # --------------------------------------------------------------------
+  # Dimensions
+  # --------------------------------------------------------------------
+  - name: dim_date
+    description: >
+      Generated calendar dimension, 2023-01-01 to 2026-12-31. No raw
+      source table — see model header comment for range/fiscal-year
+      assumptions.
+    columns:
+      - name: date_key
+        tests: [unique, not_null]
+
+  - name: dim_product
+    description: >
+      SCD Type 1 (current-state only). Includes an unknown-member row
+      (product_key = -1) so fact joins never drop rows on a missing FK.
+    columns:
+      - name: product_key
+        tests: [unique, not_null]
+      - name: product_id
+        tests: [unique, not_null]
+
+  - name: dim_customer
+    description: SCD Type 1 (current-state only). Includes unknown-member row.
+    columns:
+      - name: customer_key
+        tests: [unique, not_null]
+      - name: customer_id
+        tests: [unique, not_null]
+
+  - name: dim_warehouse
+    description: >
+      Single conformed location dimension — Distribution Center, Retail
+      Store, Returns Center. No separate store dimension (see
+      03_star_schema.md v1.2). Includes unknown-member row.
+    columns:
+      - name: warehouse_key
+        tests: [unique, not_null]
+      - name: warehouse_id
+        tests: [unique, not_null]
+
+  - name: dim_supplier
+    description: SCD Type 1 (current-state only). Includes unknown-member row.
+    columns:
+      - name: supplier_key
+        tests: [unique, not_null]
+      - name: supplier_id
+        tests: [unique, not_null]
+
+  # --------------------------------------------------------------------
+  # Facts
+  # --------------------------------------------------------------------
+  - name: fact_sales
+    description: One row per order line item.
+    columns:
+      - name: sales_fact_key
+        tests: [unique, not_null]
+      - name: product_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: customer_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: warehouse_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_warehouse')
+                field: warehouse_key
+      - name: order_date_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+
+  - name: fact_purchase_orders
+    description: One row per purchase order.
+    columns:
+      - name: purchase_order_fact_key
+        tests: [unique, not_null]
+      - name: supplier_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_supplier')
+                field: supplier_key
+      - name: product_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: destination_warehouse_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_warehouse')
+                field: warehouse_key
+
+  - name: fact_returns
+    description: >
+      One row per returned order line item. refunded_amount and
+      restocking_fee_amount are derived here (see model header comment)
+      — not sourced directly from raw_returns.
+    columns:
+      - name: return_fact_key
+        tests: [unique, not_null]
+      - name: customer_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: product_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: warehouse_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_warehouse')
+                field: warehouse_key
