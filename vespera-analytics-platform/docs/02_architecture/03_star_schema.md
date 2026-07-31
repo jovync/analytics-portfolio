@@ -390,13 +390,16 @@ erDiagram
   * `fiscal_year_number`, `fiscal_quarter_number`, `fiscal_month_number`
   * `holiday_flag`
 
-### 7.8 `dim_campaign` *— Added v1.2*
+### 7.8 `dim_campaign` *— Added v1.2, corrected post-implementation*
 * **SCD Strategy:** **Type 1** (Campaign metadata rarely changes retroactively).
 * **Key Attributes:**
   * `campaign_key` (Surrogate Primary Key)
   * `campaign_id` (Natural Key, platform-issued)
-  * `campaign_name`, `marketing_platform` (Meta, Google, TikTok)
-  * `objective_type`, `start_date`, `end_date`
+  * `campaign_name`, `marketing_platform` (Meta, TikTok, Klaviyo)
+  * `acquisition_channel_name` (Facebook Ads, Instagram, TikTok, Email Campaign — shares string values with `dim_customer.acquisition_channel`, enabling first-touch attribution without a mapping table)
+  * `start_date`, `end_date` (derived as min/max of observed spend dates, not a separately-sourced campaign calendar)
+* **Synthetic Member:** One `campaign_key = -1` row, `campaign_id = 'NO_CAMPAIGN'`, representing organic/unpaid-channel customers. Distinct in meaning from the generic "Unknown" member pattern used elsewhere — this row means "no campaign applies by design," not "data we're missing." Exists so `dim_customer.acquisition_campaign_key` always resolves to a real key with no NULLs.
+* **Correction note:** The original v1.2 draft of this spec included an `objective_type` column. The actual marketing spend source data doesn't carry this field, so it was dropped rather than faked. `acquisition_channel_name` was added in its place, since it's what the real source actually provides and what attribution logic depends on.
 
 ---
 # Slowly Changing Dimension Strategy

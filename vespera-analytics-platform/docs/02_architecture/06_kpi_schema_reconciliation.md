@@ -147,6 +147,23 @@ Both gaps stem from the same pattern: the KPI Framework named a metric and its s
 
 ## Resolution Status (as of dbt implementation)
 
-The schema additions proposed above were implemented as of the v1.2 documentation updates to `02_logical_data_model.md`, `03_star_schema.md`, `04_physical_erd.md`, and `05_data_dictionary.md`. Marketing spend / CAC (Section 3) is now built and tested end-to-end in dbt (`stg_marketing_spend` → `dim_campaign` → `fact_marketing_spend`, 15/15 tests passing). AR aging / DSO (Section 2) is generated at the Python source layer (`ar_invoices.py`) but the `fact_ar_aging_daily` dbt model itself is not yet built — still pending as of this checkpoint.
+**Both gaps are now fully closed, built, and tested end to end in dbt** — not just designed. Summary:
 
-One implementation deviation from this memo worth noting: `dim_campaign`'s `objective_type` attribute (Section 3.1) was not carried through to the actual build, since the real `marketing_spend.py` generator doesn't produce that field. `03_star_schema.md` and `05_data_dictionary.md` still need a follow-up correction to drop or mark it unsourced.
+**CAC (Section 3):**
+- `stg_marketing_spend` → `dim_campaign` → `fact_marketing_spend` — 15/15 tests passing
+- `dim_customer.acquisition_campaign_key` — first-touch attribution join, validated at 45.83% no-campaign rate (matches the ~46% expected from the underlying 54.17% paid-channel attribution rate in the Python generator layer)
+- Marketing Dashboard Pages 3–4 (Acquisition Cost & Efficiency, Campaign-Level Performance) are unblocked
+
+**DSO (Section 2):**
+- `stg_ar_invoices` → `int_ar_invoice_daily_spine` → `fact_ar_aging_daily` — 78.5K rows, 9/9 tests passing, average open balance $241.66 SGD (plausible against typical order size)
+- `fact_sales.payment_terms_code` — validated at 6.65% credit-term orders, with the NET15/NET30/NET60 split (45.0%/40.5%/14.5%) matching the source `PAYMENT_TERMS_WEIGHTS` config almost exactly
+- Finance Dashboard Page 4 (Cash Collection / DSO) is unblocked
+
+**Implementation deviations from this memo, corrected post-build:**
+1. `dim_campaign`'s `objective_type` attribute (Section 3.1) was dropped — the real marketing spend source doesn't provide it. `acquisition_channel_name` was added in its place, since attribution logic depends on it matching `dim_customer.acquisition_channel` exactly. `03_star_schema.md` and `05_data_dictionary.md` have been corrected to match.
+2. `dim_campaign` carries one synthetic `campaign_key = -1` member (`'NO_CAMPAIGN'`) for organic/unpaid-channel customers — not called out in the original memo, but needed to keep `dim_customer.acquisition_campaign_key` NULL-free, consistent with this project's existing FK convention (see `dim_customer`'s own `unknown_member` pattern).
+3. Source system references were simplified from the memo's aspirational "Meta Ads API, Google Ads API, TikTok Ads API" to what's actually modeled: Meta Ads, TikTok Ads, and Klaviyo (email) — Google Ads was never part of the paid channel mix in this business's actual `MARKETING_CHANNELS` config.
+
+**Still open (Section 5 business decisions — unaffected by the engineering work above):**
+- DSO applicability given Vespera's predominantly point-of-sale revenue mix — still a question for Head of Finance, not resolved by building the pipeline
+- Attribution model confirmation with Marketing Director (Option B / first-touch was implemented, but not yet formally signed off)

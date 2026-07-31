@@ -343,13 +343,18 @@ CREATE TABLE IF NOT EXISTS vespera_dw.dim_promotion (
     PRIMARY KEY (promotion_key) NOT ENFORCED
 );
 
--- dim_campaign (SCD Type 1) -- Added v2.1
+-- dim_campaign (SCD Type 1) -- Added v1.2, corrected post-implementation
+-- Original draft included objective_type, which the real marketing
+-- spend source doesn't provide -- dropped, acquisition_channel_name
+-- added in its place. One synthetic row (campaign_key = -1,
+-- campaign_id = 'NO_CAMPAIGN') represents organic/unpaid-channel
+-- customers -- see 03_star_schema.md Section 7.8.
 CREATE TABLE IF NOT EXISTS vespera_dw.dim_campaign (
     campaign_key INT64 NOT NULL,
     campaign_id STRING NOT NULL,
     campaign_name STRING NOT NULL,
     marketing_platform STRING NOT NULL,
-    objective_type STRING,
+    acquisition_channel_name STRING NOT NULL,
     start_date DATE,
     end_date DATE,
     PRIMARY KEY (campaign_key) NOT ENFORCED

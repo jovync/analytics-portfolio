@@ -265,23 +265,25 @@ The repository provides complete metadata coverage across all major analytical d
 
 ---
 
-## 3.8 Campaign Dimension (`dim_campaign`) *— Added v1.2*
+## 3.8 Campaign Dimension (`dim_campaign`) *— Added v1.2, corrected post-implementation*
 
 **Business Owner:** Marketing Director  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Meta Ads API / Google Ads API / TikTok Ads API  
+**Source System:** Meta Ads / TikTok Ads / Klaviyo (email)  
 **Refresh Frequency:** Daily  
 **SCD Strategy:** Type 1
 
+**Correction note:** The original v1.2 draft of this table included an `objective_type` column that the actual marketing spend source doesn't provide — dropped rather than faked. `acquisition_channel_name` was added in its place (see below), since first-touch attribution depends on it matching `dim_customer.acquisition_channel` exactly. This table also carries one synthetic `campaign_sk = -1` row (`campaign_id = 'NO_CAMPAIGN'`) representing organic/unpaid-channel customers — not a data quality placeholder, but a deliberate "no campaign applies" member so `dim_customer.acquisition_campaign_key` never needs to be NULL.
+
 | Column Name | Physical Type | Null | Key | Classification | Source Field | Transformation Rule | Business Definition & Validation |
 | :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| `campaign_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(campaign_id)` | Campaign surrogate key. |
-| `campaign_id` | `STRING` | No | NK | Internal | Ad Platform | `TRIM(campaign_id)` | Platform-issued campaign identifier. |
+| `campaign_sk` | `INT64` | No | PK | Internal | N/A | `FARM_FINGERPRINT(campaign_id)`, or literal `-1` for the synthetic "No Campaign" member | Campaign surrogate key. |
+| `campaign_id` | `STRING` | No | NK | Internal | Ad Platform | `TRIM(campaign_id)` | Platform-issued campaign identifier; `'NO_CAMPAIGN'` for the synthetic member. |
 | `campaign_name` | `STRING` | No | - | Internal | Ad Platform | Direct Mapping | Campaign display name. |
-| `marketing_platform` | `STRING` | No | - | Internal | Ad Platform | Standard Mapping | Meta, Google, or TikTok. |
-| `objective_type` | `STRING` | Yes | - | Internal | Ad Platform | Direct Mapping | Awareness, Conversion, Retargeting, etc. |
-| `start_date` | `DATE` | Yes | - | Internal | Ad Platform | Direct Mapping | Campaign start date. |
-| `end_date` | `DATE` | Yes | - | Internal | Ad Platform | Direct Mapping | Campaign end date. |
+| `marketing_platform` | `STRING` | No | - | Internal | Ad Platform | Standard Mapping | Meta, TikTok, or Klaviyo. |
+| `acquisition_channel_name` | `STRING` | No | - | Internal | Ad Platform | Direct Mapping | Facebook Ads, Instagram, TikTok, or Email Campaign — shares string values with `dim_customer.acquisition_channel` by design, enabling attribution without a mapping table. |
+| `start_date` | `DATE` | Yes | - | Internal | Derived | `MIN(spend_date)` per campaign | Earliest observed spend date for the campaign. |
+| `end_date` | `DATE` | Yes | - | Internal | Derived | `MAX(spend_date)` per campaign | Latest observed spend date for the campaign. |
 
 ---
 
@@ -449,7 +451,7 @@ Closes the DSO data gap identified in KPI Framework reconciliation (`06_kpi_sche
 
 **Business Owner:** Marketing Director  
 **Technical Steward:** Analytics Engineering  
-**Source System:** Meta Ads API / Google Ads API / TikTok Ads API  
+**Source System:** Meta Ads / TikTok Ads / Klaviyo (email)  
 **Grain:** One record per campaign per marketing platform per calendar day  
 **Refresh Frequency:** Daily
 
