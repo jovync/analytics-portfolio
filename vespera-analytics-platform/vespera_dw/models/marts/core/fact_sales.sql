@@ -1,8 +1,18 @@
 -- Grain: one row per order line item.
 --
--- COGS is quantity × the product's CURRENT base_cost_sgd (dim_product
--- is Type 1 / current-state only), not the cost as of the order date —
+-- COGS is quantity x the product's CURRENT base_cost_sgd (dim_product
+-- is Type 1 / current-state only), not the cost as of the order date --
 -- a known simplification until dim_product tracks history.
+--
+-- payment_terms_code added (v1.2 KPI Framework <-> Star Schema
+-- reconciliation, closing the DSO gap -- see
+-- docs/06_kpi_schema_reconciliation.md). Left-joined from
+-- stg_ar_invoices via order_id -- safe many-to-one join since
+-- stg_ar_invoices has at most one row per order_id (only ~7% of
+-- orders are invoiced at all), so no fan-out risk against this
+-- line-item grain. Orders with no invoice default to
+-- DUE_ON_RECEIPT, since immediate point-of-sale settlement is the
+-- norm for this business.
 
 with order_items as (
 
@@ -13,6 +23,12 @@ with order_items as (
 orders as (
 
     select * from {{ ref('stg_orders') }}
+
+),
+
+ar_invoices as (
+
+    select * from {{ ref('stg_ar_invoices') }}
 
 ),
 
@@ -53,6 +69,9 @@ joined as (
         o.payment_method,
         o.order_status                 as fulfillment_status,
 
+        coalesce(ai.payment_terms_code, 'DUE_ON_RECEIPT')
+                                        as payment_terms_code,
+
         row_number() over (
             partition by oi.order_id
             order by oi.order_item_id
@@ -73,6 +92,8 @@ joined as (
         on oi.order_id = o.order_id
     left join dim_product p
         on oi.product_id = p.product_id
+    left join ar_invoices ai
+        on oi.order_id = ai.order_id
 
 ),
 
@@ -90,6 +111,7 @@ final as (
         j.sales_channel                         as sales_channel_code,
         j.payment_method,
         j.fulfillment_status,
+        j.payment_terms_code,
 
         j.quantity_ordered,
         j.unit_list_price_amount,

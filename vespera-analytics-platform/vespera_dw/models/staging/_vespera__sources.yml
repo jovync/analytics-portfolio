@@ -99,3 +99,21 @@ sources:
 
       - name: raw_marketing_spend
         description: Daily spend by campaign, 4 paid channels only. 678 rows.
+      
+      - name: raw_ar_invoices
+        description: >
+          Invoice-level AR lifecycle records for orders settled on
+          credit terms (~7% of orders, per PCT_ORDERS_ON_CREDIT_TERMS).
+          Simplification note: generated against existing retail
+          customers rather than a modeled wholesale segment -- see
+          docs/06_kpi_schema_reconciliation.md Section 5. Loaded with
+          an explicit schema (not autodetect) after the
+          raw_acquisition_attribution all-string autodetect issue.
+          3,324 rows.
+        columns:
+          - name: invoice_id
+            tests: [unique, not_null]
+          - name: order_id
+            tests: [not_null]
+          - name: customer_id
+            tests: [not_null]
