@@ -1,0 +1,47 @@
+version: 2
+
+models:
+
+  - name: fact_ar_aging_daily
+    description: >
+      Periodic snapshot fact, one row per open invoice per calendar
+      day. Added in the v1.2 KPI Framework <-> Star Schema
+      reconciliation to close the DSO data gap -- see
+      docs/06_kpi_schema_reconciliation.md.
+    columns:
+
+      - name: ar_snapshot_key
+        description: Surrogate primary key.
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_key
+        description: FK to dim_customer. -1 indicates an unmapped customer (should not occur).
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+
+      - name: snapshot_date_key
+        description: FK to dim_date, YYYYMMDD integer format.
+        tests:
+          - not_null
+
+      - name: open_balance_amount
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+
+      - name: days_outstanding
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true

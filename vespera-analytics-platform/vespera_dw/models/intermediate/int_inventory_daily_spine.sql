@@ -1,25 +1,23 @@
--- One row per (warehouse, product, day) — but only for days where
--- that product is both (a) actually assigned/stocked at that
--- warehouse (per stg_warehouse_product_assignment, the same shared
--- source of truth the raw generators used) and (b) within its active
--- product lifecycle window, intersected with the simulation period
--- (movements only exist 2024-01-01 to 2025-12-31 — a product launched
--- in 2022 doesn't get ledger-backed daily rows for 2022-2023).
+-- One row per (invoice, day) -- from invoice_date through the
+-- earlier of payment_date or the simulation end date (2025-12-31,
+-- same hardcoded bound used in int_inventory_daily_spine.sql).
+-- Still-open invoices (payment_date is null) run through simulation
+-- end; paid/partially-paid invoices stop at their payment_date --
+-- no value in snapshotting a $0-balance invoice indefinitely, so the
+-- window naturally closes there rather than needing a separate
+-- zero-balance filter downstream.
 --
--- Expect on the order of a few million rows (4,756 assignment pairs
--- × up to ~730 days each) — normal for a daily grain fact at this
--- scale, not a bug if the row count looks large.
+-- Added in the v1.2 KPI Framework <-> Star Schema reconciliation to
+-- close the DSO data gap -- see docs/06_kpi_schema_reconciliation.md.
+--
+-- Expect roughly 3,324 invoices x up to ~60 days each (payment terms
+-- cap at NET60) -- on the order of ~100-150K rows, much smaller than
+-- the inventory spine since invoice windows are short-lived by
+-- design, not a bug if the row count looks small by comparison.
 
-with assignment as (
+with stg_ar_invoices as (
 
-    select * from {{ ref('stg_warehouse_product_assignment') }}
-
-),
-
-dim_product as (
-
-    select * from {{ ref('dim_product') }}
-    where product_id != 'UNKNOWN'
+    select * from {{ ref('stg_ar_invoices') }}
 
 ),
 
@@ -29,31 +27,49 @@ dim_date as (
 
 ),
 
-bounded_products as (
+bounded_invoices as (
 
     select
-        product_id,
-        greatest(launch_date, date('2024-01-01'))
-            as window_start,
-        least(coalesce(discontinued_date, date('2025-12-31')), date('2025-12-31'))
+
+        invoice_id,
+        order_id,
+        customer_id,
+        payment_terms_code,
+        invoice_date,
+        due_date,
+        invoice_amount,
+        amount_paid,
+        payment_date,
+        invoice_status,
+
+        invoice_date as window_start,
+
+        least(coalesce(payment_date, date('2025-12-31')), date('2025-12-31'))
             as window_end
 
-    from dim_product
+    from stg_ar_invoices
 
 ),
 
 spine as (
 
     select
-        a.warehouse_id,
-        a.product_id,
-        d.full_date as balance_date
 
-    from assignment a
-    inner join bounded_products bp
-        on a.product_id = bp.product_id
+        bi.invoice_id,
+        bi.order_id,
+        bi.customer_id,
+        bi.payment_terms_code,
+        bi.invoice_date,
+        bi.due_date,
+        bi.invoice_amount,
+        bi.amount_paid,
+        bi.payment_date,
+        bi.invoice_status,
+        d.full_date as snapshot_date
+
+    from bounded_invoices bi
     inner join dim_date d
-        on d.full_date between bp.window_start and bp.window_end
+        on d.full_date between bi.window_start and bi.window_end
 
 )
 
