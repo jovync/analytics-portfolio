@@ -85,6 +85,17 @@ sources:
         description: >
           Signed-quantity inventory ledger (Customer Sale, Customer
           Return, Inbound Purchase). 192,199 rows.
+      
+      - name: raw_acquisition_attribution
+        description: >
+          Customer-to-campaign first-touch attribution bridge. One row
+          per customer (nullable acquisition_campaign_id for unpaid-
+          channel customers). 10,000 rows. Added in the v1.2 KPI
+          Framework <-> Star Schema reconciliation to close the CAC
+          data gap -- see docs/06_kpi_schema_reconciliation.md.
+        columns:
+          - name: customer_id
+            tests: [unique, not_null]
 
       - name: raw_marketing_spend
         description: Daily spend by campaign, 4 paid channels only. 678 rows.

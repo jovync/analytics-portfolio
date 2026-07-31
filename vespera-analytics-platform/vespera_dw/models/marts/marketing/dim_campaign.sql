@@ -1,7 +1,14 @@
 -- dim_campaign.sql
 --
 -- Conformed dimension, SCD Type 1 (03_star_schema.md Section 7.8).
--- Grain: one row per campaign.
+-- Grain: one row per campaign, plus one synthetic "No Campaign"
+-- member row (campaign_key = -1) -- same -1 convention used by
+-- dim_customer's unknown_member, but a distinct meaning: this row
+-- represents customers acquired through organic/unpaid channels
+-- (no campaign applies, by design), not missing/unknown data.
+-- Needed so dim_customer.acquisition_campaign_key can always resolve
+-- to a real key with no NULLs, matching the rest of this project's
+-- FK convention.
 --
 -- stg_marketing_spend is a select * passthrough (project convention --
 -- see stg_shipments.sql), so this model reads the raw column names
@@ -47,7 +54,7 @@ campaign_grain as (
 
 ),
 
-final as (
+real_campaigns as (
 
     select
 
@@ -61,6 +68,28 @@ final as (
         end_date
 
     from campaign_grain
+
+),
+
+no_campaign_member as (
+
+    select
+
+        -1                                              as campaign_key,
+        'NO_CAMPAIGN'                                    as campaign_id,
+        'No Campaign (Organic/Unpaid Channel)'           as campaign_name,
+        'N/A'                                             as marketing_platform,
+        'N/A'                                             as acquisition_channel_name,
+        cast(null as date)                                as start_date,
+        cast(null as date)                                as end_date
+
+),
+
+final as (
+
+    select * from real_campaigns
+    union all
+    select * from no_campaign_member
 
 )
 
