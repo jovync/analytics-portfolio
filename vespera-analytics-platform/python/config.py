@@ -535,22 +535,22 @@ MARKETING_CHANNELS = {
 
     "Facebook Ads": {
         "platform": "Meta",
-        "daily_budget_range": (150, 500),
+        "daily_budget_range": (1500, 5000),   # was (150, 500)
     },
 
     "Instagram": {
         "platform": "Meta",
-        "daily_budget_range": (120, 450),
+        "daily_budget_range": (1200, 4500),   # was (120, 450)
     },
 
     "TikTok": {
         "platform": "TikTok",
-        "daily_budget_range": (100, 400),
+        "daily_budget_range": (1000, 4000),   # was (100, 400)
     },
 
     "Email Campaign": {
         "platform": "Klaviyo",
-        "daily_budget_range": (20, 80),
+        "daily_budget_range": (200, 800),     # was (20, 80)
     },
 
 }

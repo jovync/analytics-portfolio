@@ -1,16 +1,23 @@
 -- Grain: one row per returned order line item.
 --
 -- refunded_amount and restocking_fee_amount are DERIVED here, not
--- sourced directly — raw_returns doesn't have them (confirmed against
+-- sourced directly -- raw_returns doesn't have them (confirmed against
 -- BigQuery INFORMATION_SCHEMA on 2026-07-30; see stg_returns.sql).
 -- Business logic follows 00_data_generation_assumptions.md's original
 -- intent: refund prorated by returned quantity against the order
 -- item's actual net unit price, and a 10% restocking fee applied only
 -- when return_reason is "Customer Remorse". This resolves the
 -- fact_returns doc/data divergence flagged when the staging layer was
--- built — 03_star_schema.md / 05_data_dictionary.md should be updated
+-- built -- 03_star_schema.md / 05_data_dictionary.md should be updated
 -- to note these are derived mart-layer measures, not raw source
 -- columns, the next time those docs get a reconciliation pass.
+--
+-- order_number added -- the original build omitted any order-level
+-- reference entirely, which blocked channel-level return analysis
+-- (Executive Dashboard Page 4's Return Rate by Channel Class). Named
+-- order_number to match fact_sales' existing convention for the same
+-- underlying order_id column, so downstream joins between the two
+-- fact tables use consistent naming.
 
 with returns as (
 
@@ -110,6 +117,7 @@ final as (
         coalesce(dw.warehouse_key, -1)          as warehouse_key,
 
         w.return_id                              as return_authorization_number,
+        w.order_id                               as order_number,
         w.disposition_code,
         w.return_reason                          as return_reason_code,
 
